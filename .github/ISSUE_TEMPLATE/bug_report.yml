@@ -1,0 +1,65 @@
+name: Bug report
+description: Report reproducible incorrect behavior without sharing credentials.
+title: "[Bug]: "
+labels: ["bug", "needs-triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Never include a real PAT, master password, vault database, cookie, or private
+        Supabase data. Report security vulnerabilities privately through GitHub's
+        Security tab.
+
+  - type: input
+    id: version
+    attributes:
+      label: Harbor version
+      placeholder: 0.1.0
+    validations:
+      required: true
+
+  - type: dropdown
+    id: windows
+    attributes:
+      label: Windows version
+      options:
+        - Windows 11
+        - Windows 10
+        - Other or unsupported
+    validations:
+      required: true
+
+  - type: textarea
+    id: description
+    attributes:
+      label: What happened?
+      description: Describe the observed and expected behavior.
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Reproduction steps
+      placeholder: |
+        1. Start Harbor
+        2. Open ...
+        3. Select ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: diagnostics
+    attributes:
+      label: Redacted diagnostics
+      description: Remove credentials, cookies, database contents, emails, and project references.
+
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Safety checks
+      options:
+        - label: I removed all credentials and private data.
+          required: true
+        - label: This is not an undisclosed security vulnerability.
+          required: true
