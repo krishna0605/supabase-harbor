@@ -1,0 +1,17 @@
+node_modules/
+.next/
+coverage/
+playwright-report/
+test-results/
+*.log
+*.db
+*.db-shm
+*.db-wal
+.env
+.env.local
+.env.*.local
+!.env.example
+work/
+*.tsbuildinfo
+.vercel/
+.railway/
