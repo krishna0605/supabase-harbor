@@ -212,8 +212,16 @@ function compare(a: Row, b: Row, key: SortKey): number {
         Date.parse(a.project.keepaliveLastSuccessAt ?? "0")
       );
     case "margin":
-    default:
-      // Default view: whoever runs aground first sits at the top.
-      return a.protection.marginDays - b.protection.marginDays;
+    default: {
+      // Default view: whoever runs aground first sits at the top. Unprotected
+      // and at-risk both report zero margin, so break the tie on severity —
+      // a paused project outranks an active one that merely isn't enrolled.
+      const margin = a.protection.marginDays - b.protection.marginDays;
+      if (margin !== 0) return margin;
+      return (
+        PROTECTION_ORDER[a.protection.state as keyof typeof PROTECTION_ORDER] -
+        PROTECTION_ORDER[b.protection.state as keyof typeof PROTECTION_ORDER]
+      );
+    }
   }
 }

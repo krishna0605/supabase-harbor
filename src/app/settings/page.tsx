@@ -238,7 +238,7 @@ export default function SettingsPage() {
         </div>
 
         <div className="setting-section">
-          <h2 style={{ color: "var(--red)" }}>
+          <h2 style={{ color: "var(--flare)" }}>
             <ShieldAlert
               size={16}
               style={{ display: "inline", marginRight: 8 }}

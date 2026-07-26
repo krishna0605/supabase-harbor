@@ -106,7 +106,7 @@ export default function AccountsPage() {
           ) : accounts.error ? (
             <div className="empty-state">
               <div className="empty-state-inner">
-                <AlertTriangle size={22} style={{ color: "var(--red)" }} />
+                <AlertTriangle size={22} style={{ color: "var(--flare)" }} />
                 <p style={{ marginTop: 10 }}>{accounts.error.message}</p>
               </div>
             </div>
@@ -188,7 +188,7 @@ export default function AccountsPage() {
         <section className="panel">
           <div className="section-header">
             <h2>Add an account</h2>
-            <UserPlus size={17} style={{ color: "var(--teal)" }} />
+            <UserPlus size={17} style={{ color: "var(--verdigris)" }} />
           </div>
           <form className="panel-body form-stack" onSubmit={submit}>
             <div className="field">

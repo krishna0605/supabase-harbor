@@ -41,7 +41,7 @@ export default function ActivityPage() {
         ) : activity.error ? (
           <div className="empty-state">
             <div className="empty-state-inner">
-              <AlertTriangle size={22} style={{ color: "var(--red)" }} />
+              <AlertTriangle size={22} style={{ color: "var(--flare)" }} />
               <p style={{ marginTop: 10 }}>{activity.error.message}</p>
             </div>
           </div>

@@ -25,7 +25,7 @@ export default function Home() {
       <div style={{ textAlign: "center", color: "var(--muted)" }}>
         <Anchor
           size={28}
-          style={{ margin: "0 auto 10px", color: "var(--teal)" }}
+          style={{ margin: "0 auto 10px", color: "var(--verdigris)" }}
         />
         Opening Harbor…
       </div>
