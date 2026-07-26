@@ -12,6 +12,8 @@ test-results/
 .env.*.local
 !.env.example
 work/
+tmp/
 *.tsbuildinfo
 .vercel/
 .railway/
+.claude/settings.local.json
