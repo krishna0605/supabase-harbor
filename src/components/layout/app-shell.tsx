@@ -7,13 +7,16 @@ import {
   FolderKanban,
   LockKeyhole,
   Settings,
+  ShieldCheck,
   UsersRound,
 } from "lucide-react";
 import { Brand } from "@/components/brand";
+import { ThemeToggle } from "@/components/ui/theme-toggle";
 import { api } from "@/shared/api-client";
 
 const links = [
   { href: "/dashboard", label: "Dashboard", icon: FolderKanban },
+  { href: "/keepalive", label: "Keepalive", icon: ShieldCheck },
   { href: "/accounts", label: "Accounts", icon: UsersRound },
   { href: "/activity", label: "Activity", icon: Activity },
   { href: "/settings", label: "Settings", icon: Settings },
@@ -34,6 +37,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       href={href}
       className={`nav-link ${pathname === href ? "active" : ""}`}
       aria-current={pathname === href ? "page" : undefined}
+      title={label}
     >
       <Icon size={17} />
       <span>{label}</span>
@@ -47,6 +51,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         <nav className="mobile-nav" aria-label="Primary navigation">
           {navigation}
         </nav>
+        <span style={{ marginLeft: "auto" }}>
+          <ThemeToggle />
+        </span>
       </div>
       <div className="app-shell">
         <aside className="sidebar">
@@ -59,10 +66,17 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               <span className="local-dot" />
               Loopback only
             </div>
-            <button className="button button-quiet full-width" onClick={lock}>
-              <LockKeyhole size={16} />
-              Lock Harbor
-            </button>
+            <div style={{ display: "flex", gap: 6 }}>
+              <button
+                type="button"
+                className="button button-quiet full-width"
+                onClick={lock}
+              >
+                <LockKeyhole size={15} />
+                Lock
+              </button>
+              <ThemeToggle />
+            </div>
           </div>
         </aside>
         <main className="main">{children}</main>

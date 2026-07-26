@@ -5,7 +5,16 @@ import nextTypescript from "eslint-config-next/typescript";
 export default defineConfig([
   ...nextVitals,
   ...nextTypescript,
-  globalIgnores([".next/**", "coverage/**", "playwright-report/**"]),
+  globalIgnores([
+    ".next/**",
+    "coverage/**",
+    "playwright-report/**",
+    // Vendored skill packs. Third-party code we do not author or maintain.
+    ".claude/skills/**",
+    ".github/skills/**",
+    ".claude/hooks/**",
+    ".github/hooks/**",
+  ]),
   {
     files: ["src/**/*.tsx"],
     rules: {

@@ -1,78 +1,68 @@
 "use client";
 
 /**
- * THESIS: A quiet harbor watchfloor with one dominant operational table.
- * OWN-WORLD: Navy rail, mist canvas, sea-glass teal, steel dividers.
- * STORY: Projects → counts → control → stale context → evidence-rich rows.
- * FIRST VIEWPORT: Header, metrics, notice, filters, and five rows at 1440×900.
- * FORM: Restrained control room pinned by the approved concept and 21st.dev research.
+ * THESIS: A tide table — every project draining toward a pause, ordered by who
+ * runs aground first.
+ * OWN-WORLD: Slate-indigo ground, verdigris, brass, flare. Margin drawn, not
+ * described.
+ * STORY: Exposure (who is at risk) → the tide (the table) → action.
+ * FIRST VIEWPORT: Header, five-tile risk strip, filters, six rows at 1440×900.
+ * FORM: One dominant table on a dark ground with a persistent rail.
  */
 
 import Link from "next/link";
-import { useSearchParams } from "next/navigation";
-import { Suspense, useEffect, useMemo, useRef, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
+import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { AnimatePresence } from "motion/react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import {
-  AlertTriangle,
-  ArrowUpRight,
-  CircleCheck,
-  Clock3,
-  FolderKanban,
-  HeartPulse,
-  Pause,
-  Plus,
-  RefreshCw,
-  Search,
-} from "lucide-react";
+import { AlertTriangle, FolderKanban, Plus, RefreshCw } from "lucide-react";
 import { AppShell } from "@/components/layout/app-shell";
 import { ConfirmDialog } from "@/components/ui/dialog";
+import { TooltipProvider } from "@/components/ui/tooltip";
+import { BatchBar } from "@/features/projects/components/batch-bar";
+import { FilterBar } from "@/features/projects/components/filter-bar";
+import { MetricStrip } from "@/features/projects/components/metric-strip";
+import { ProjectTable } from "@/features/projects/components/project-table";
+import { useProjectFilters, type RiskFilter } from "@/features/projects/hooks/use-project-filters";
 import { previewProjects } from "@/features/projects/preview-data";
 import type { DashboardProject } from "@/features/projects/project-types";
 import { api } from "@/shared/api-client";
+import { useNow } from "@/shared/time/use-now";
 
-function Status({
-  lifecycle,
-  health,
-}: {
-  lifecycle: DashboardProject["lifecycleStatus"];
-  health: DashboardProject["healthStatus"];
-}) {
-  const isUnhealthy = health === "unhealthy";
-  const value = isUnhealthy ? "unhealthy" : lifecycle;
-  const Icon =
-    value === "active"
-      ? CircleCheck
-      : value === "paused"
-        ? Pause
-        : value === "unhealthy" || value === "failed"
-          ? AlertTriangle
-          : Clock3;
-  return (
-    <span className={`status status-${value}`}>
-      <Icon />
-      {value}
-    </span>
-  );
-}
+const keyOf = (project: DashboardProject) =>
+  `${project.accountId}:${project.projectRef}`;
 
-function formatRefreshTime(value: string) {
-  const date = new Date(value);
-  return `${date.toISOString().slice(11, 16)} UTC`;
+/** Batch restores run two at a time so Supabase does not rate-limit the group. */
+async function inBatches<T>(
+  items: T[],
+  limit: number,
+  run: (item: T) => Promise<unknown>,
+) {
+  const queue = [...items];
+  const workers = Array.from({ length: Math.min(limit, queue.length) }, async () => {
+    while (queue.length) {
+      const item = queue.shift();
+      if (!item) return;
+      // One failure must never abort the rest of the batch.
+      await run(item).catch(() => undefined);
+    }
+  });
+  await Promise.all(workers);
 }
 
 function DashboardContent() {
   const queryClient = useQueryClient();
+  const router = useRouter();
   const searchParams = useSearchParams();
   const preview =
-    process.env.NODE_ENV === "development" &&
-    searchParams.get("preview") === "1";
-  const [search, setSearch] = useState("");
-  const [account, setAccount] = useState("");
-  const [organization, setOrganization] = useState("");
-  const [status, setStatus] = useState("");
-  const [restoreTarget, setRestoreTarget] = useState<DashboardProject | null>(
-    null,
-  );
+    process.env.NODE_ENV === "development" && searchParams.get("preview") === "1";
+
+  const [selection, setSelection] = useState<Set<string>>(new Set());
+  const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  const [density, setDensity] = useState<"comfortable" | "compact">("comfortable");
+  const [restoreTarget, setRestoreTarget] = useState<DashboardProject | null>(null);
+  const [batchTarget, setBatchTarget] = useState<DashboardProject[] | null>(null);
+  const [sweeping, setSweeping] = useState(false);
   const initialRefreshStarted = useRef(false);
 
   const projectsQuery = useQuery({
@@ -84,16 +74,30 @@ function DashboardContent() {
         ? 300_000
         : false,
   });
+
   const projects = useMemo(
     () => (preview ? previewProjects : (projectsQuery.data ?? [])),
     [preview, projectsQuery.data],
   );
 
+  // One clock for the whole table, bucketed to the minute, so every row grades
+  // its margin against the same instant and relative times tick on their own.
+  const now = useNow();
+
+  const filters = useProjectFilters(projects, now);
+
+  /** Fires the tide line. Only ever called for a genuine sweep. */
+  const runSweep = useCallback(() => {
+    setSweeping(true);
+    window.setTimeout(() => setSweeping(false), 950);
+  }, []);
+
   const refresh = useMutation({
-    mutationFn: () =>
-      api("/api/refresh", { method: "POST", interaction: true }),
+    mutationFn: () => api("/api/refresh", { method: "POST", interaction: true }),
+    onMutate: runSweep,
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["projects"] }),
   });
+
   const restore = useMutation({
     mutationFn: (project: DashboardProject) =>
       api<{ id: string }>(
@@ -104,29 +108,18 @@ function DashboardContent() {
           interaction: true,
         },
       ),
-    onSuccess: (action) => {
-      setRestoreTarget(null);
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["projects"] }),
+  });
+
+  const batchRestore = useMutation({
+    mutationFn: async (targets: DashboardProject[]) => {
+      runSweep();
+      await inBatches(targets, 2, (project) => restore.mutateAsync(project));
+    },
+    onSuccess: () => {
+      setBatchTarget(null);
+      setSelection(new Set());
       queryClient.invalidateQueries({ queryKey: ["projects"] });
-      let attemptsRemaining = 60;
-      const reconcile = async () => {
-        if (document.visibilityState !== "visible" || attemptsRemaining <= 0) {
-          return;
-        }
-        attemptsRemaining -= 1;
-        try {
-          const current = await api<{ status: string }>(
-            `/api/actions/${action.id}/reconcile`,
-            { method: "POST" },
-          );
-          await queryClient.invalidateQueries({ queryKey: ["projects"] });
-          if (!["completed", "failed"].includes(current.status)) {
-            window.setTimeout(reconcile, 5_000);
-          }
-        } catch {
-          window.setTimeout(reconcile, 5_000);
-        }
-      };
-      window.setTimeout(reconcile, 5_000);
     },
   });
 
@@ -140,41 +133,28 @@ function DashboardContent() {
       });
   }, [preview, queryClient]);
 
-  const accountOptions = useMemo(
-    () => [...new Set(projects.map((project) => project.accountLabel))].sort(),
-    [projects],
-  );
-  const organizationOptions = useMemo(
-    () =>
-      [...new Set(projects.map((project) => project.organizationName))].sort(),
-    [projects],
-  );
-  const filtered = useMemo(() => {
-    const query = search.trim().toLowerCase();
-    return projects.filter(
-      (project) =>
-        (!query ||
-          project.name.toLowerCase().includes(query) ||
-          project.projectRef.toLowerCase().includes(query)) &&
-        (!account || project.accountLabel === account) &&
-        (!organization || project.organizationName === organization) &&
-        (!status ||
-          project.lifecycleStatus === status ||
-          project.healthStatus === status),
-    );
-  }, [projects, search, account, organization, status]);
-
-  const counts = {
-    total: projects.length,
-    active: projects.filter((project) => project.lifecycleStatus === "active")
-      .length,
-    paused: projects.filter((project) => project.lifecycleStatus === "paused")
-      .length,
-    unhealthy: projects.filter(
-      (project) => project.healthStatus === "unhealthy",
-    ).length,
+  const toggleIn = (set: Set<string>, key: string) => {
+    const next = new Set(set);
+    if (next.has(key)) next.delete(key);
+    else next.add(key);
+    return next;
   };
+
+  const selected = useMemo(
+    () => filters.visible.filter((row) => selection.has(keyOf(row.project))),
+    [filters.visible, selection],
+  );
+
+  const restorable = selected
+    .filter((row) => row.project.lifecycleStatus === "paused")
+    .map((row) => row.project);
+
+  const enrollable = selected
+    .filter((row) => row.protection.state === "unprotected")
+    .map((row) => row.project);
+
   const stale = projects.some((project) => project.accountLastErrorCode);
+  const busy = refresh.isPending || batchRestore.isPending;
 
   return (
     <AppShell>
@@ -182,144 +162,85 @@ function DashboardContent() {
         <div>
           <h1 className="page-title">Projects</h1>
           <p className="page-copy">
-            One operational view across every connected Supabase account.
+            Every connected Supabase account, ordered by how close each project is
+            to pausing.
           </p>
         </div>
         <div className="header-actions">
           <button
+            type="button"
             className="button button-primary"
             onClick={() => refresh.mutate()}
-            disabled={refresh.isPending || preview}
-            title={
-              preview ? "Refresh is disabled in visual preview" : undefined
-            }
+            disabled={busy || preview}
+            title={preview ? "Refresh is disabled in visual preview" : undefined}
           >
-            <RefreshCw size={16} className={refresh.isPending ? "spin" : ""} />
-            {refresh.isPending ? "Refreshing…" : "Refresh all"}
+            <RefreshCw size={15} className={refresh.isPending ? "spin" : ""} />
+            {refresh.isPending ? "Sweeping…" : "Sweep now"}
           </button>
           <Link className="button button-secondary" href="/accounts">
-            <Plus size={16} />
+            <Plus size={15} />
             Add account
           </Link>
         </div>
       </header>
 
-      <section className="metrics" aria-label="Project summary">
-        {[
-          {
-            label: "Total projects",
-            value: counts.total,
-            icon: FolderKanban,
-            tone: "",
-          },
-          {
-            label: "Active",
-            value: counts.active,
-            icon: CircleCheck,
-            tone: "active",
-          },
-          {
-            label: "Paused",
-            value: counts.paused,
-            icon: Pause,
-            tone: "paused",
-          },
-          {
-            label: "Unhealthy",
-            value: counts.unhealthy,
-            icon: HeartPulse,
-            tone: "unhealthy",
-          },
-        ].map(({ label, value, icon: Icon, tone }) => (
-          <div className="metric" key={label}>
-            <div className="metric-top">
-              <span>{label}</span>
-              <span className={`metric-icon ${tone}`}>
-                <Icon size={15} />
-              </span>
-            </div>
-            <strong className="metric-value">{value}</strong>
-          </div>
-        ))}
-      </section>
+      <MetricStrip
+        counts={filters.counts}
+        active={filters.risk}
+        onSelect={(risk: RiskFilter) =>
+          filters.setParam({ risk: risk === "all" ? null : risk })
+        }
+      />
 
       {stale || preview ? (
         <div className="notice">
-          <AlertTriangle size={17} aria-hidden="true" />
+          <AlertTriangle size={16} aria-hidden="true" />
           <span>
-            <strong>Cached data is still visible.</strong>{" "}
+            <strong>Showing cached data.</strong>{" "}
             {preview
               ? "This development preview uses representative local data."
-              : "At least one account could not refresh; its last successful data has been preserved."}
+              : "At least one account could not refresh. Its last successful data is preserved."}
           </span>
         </div>
       ) : null}
 
-      <section aria-label="Project filters" className="toolbar">
-        <div className="search-wrap">
-          <Search size={17} aria-hidden="true" />
-          <input
-            className="input"
-            value={search}
-            onChange={(event) => setSearch(event.target.value)}
-            placeholder="Search project name or reference"
-            aria-label="Search projects"
-          />
-        </div>
-        <select
-          className="select"
-          value={account}
-          onChange={(event) => setAccount(event.target.value)}
-          aria-label="Filter by account"
-        >
-          <option value="">All accounts</option>
-          {accountOptions.map((value) => (
-            <option key={value}>{value}</option>
-          ))}
-        </select>
-        <select
-          className="select"
-          value={organization}
-          onChange={(event) => setOrganization(event.target.value)}
-          aria-label="Filter by organization"
-        >
-          <option value="">All organizations</option>
-          {organizationOptions.map((value) => (
-            <option key={value}>{value}</option>
-          ))}
-        </select>
-        <select
-          className="select"
-          value={status}
-          onChange={(event) => setStatus(event.target.value)}
-          aria-label="Filter by status"
-        >
-          <option value="">All statuses</option>
-          <option value="active">Active</option>
-          <option value="paused">Paused</option>
-          <option value="transitioning">Transitioning</option>
-          <option value="unhealthy">Unhealthy</option>
-          <option value="failed">Failed</option>
-        </select>
-      </section>
+      <FilterBar
+        search={filters.search}
+        account={filters.account}
+        organization={filters.organization}
+        accountOptions={filters.accountOptions}
+        organizationOptions={filters.organizationOptions}
+        density={density}
+        hasFilters={filters.hasFilters}
+        onChange={filters.setParam}
+        onClear={() =>
+          filters.setParam({ q: null, account: null, org: null, risk: null })
+        }
+        onToggleDensity={() =>
+          setDensity((value) =>
+            value === "compact" ? "comfortable" : "compact",
+          )
+        }
+      />
 
-      <section className="panel">
-        {projectsQuery.isLoading && !preview ? (
-          <div className="empty-state">
-            <div className="empty-state-inner">
-              <RefreshCw size={24} style={{ color: "var(--teal)" }} />
-              <p style={{ marginTop: 12 }}>Loading cached projects…</p>
-            </div>
-          </div>
-        ) : projectsQuery.error && !preview ? (
+      {projectsQuery.isLoading && !preview ? (
+        <div className="panel">
+          {Array.from({ length: 6 }, (_, index) => (
+            <div key={index} className="skeleton-row" />
+          ))}
+          <span className="visually-hidden">Loading cached projects</span>
+        </div>
+      ) : projectsQuery.error && !preview ? (
+        <div className="panel">
           <div className="empty-state">
             <div className="empty-state-inner">
               <span className="empty-icon">
-                <AlertTriangle size={21} />
+                <AlertTriangle size={20} />
               </span>
               <h2>Harbor could not load projects</h2>
               <p>{projectsQuery.error.message}</p>
               <button
+                type="button"
                 className="button button-secondary"
                 onClick={() => projectsQuery.refetch()}
               >
@@ -327,114 +248,88 @@ function DashboardContent() {
               </button>
             </div>
           </div>
-        ) : projects.length === 0 ? (
+        </div>
+      ) : projects.length === 0 ? (
+        <div className="panel">
           <div className="empty-state">
             <div className="empty-state-inner">
               <span className="empty-icon">
-                <FolderKanban size={21} />
+                <FolderKanban size={20} />
               </span>
-              <h2>No connected projects yet</h2>
+              <h2>No projects yet</h2>
               <p>
-                Add a Supabase Personal Access Token. Harbor validates it before
-                storing an encrypted connection.
+                Connect a Supabase account with a Personal Access Token. Harbor
+                validates it before storing an encrypted connection.
               </p>
               <Link className="button button-primary" href="/accounts">
-                <Plus size={16} />
+                <Plus size={15} />
                 Add account
               </Link>
             </div>
           </div>
-        ) : filtered.length === 0 ? (
+        </div>
+      ) : filters.visible.length === 0 ? (
+        <div className="panel">
           <div className="empty-state">
             <div className="empty-state-inner">
-              <h2>No projects match these filters</h2>
-              <p>
-                Clear a filter or search term to see the rest of your cache.
-              </p>
+              <h2>Nothing matches these filters</h2>
+              <p>Clear a filter or search term to see the rest of your cache.</p>
+              <button
+                type="button"
+                className="button button-secondary"
+                onClick={() =>
+                  filters.setParam({
+                    q: null,
+                    account: null,
+                    org: null,
+                    risk: null,
+                  })
+                }
+              >
+                Clear filters
+              </button>
             </div>
           </div>
-        ) : (
-          <div className="table-wrap">
-            <table className="data-table">
-              <thead>
-                <tr>
-                  <th>Project</th>
-                  <th>Account</th>
-                  <th>Organization</th>
-                  <th>Region</th>
-                  <th>Status</th>
-                  <th>Last refresh</th>
-                  <th aria-label="Actions" />
-                </tr>
-              </thead>
-              <tbody>
-                {filtered.map((project) => (
-                  <tr key={`${project.accountId}:${project.projectRef}`}>
-                    <td>
-                      <div className="project-name">
-                        <span>{project.name}</span>
-                        <span className="project-ref">
-                          {project.projectRef}
-                        </span>
-                      </div>
-                    </td>
-                    <td>
-                      <div>
-                        {project.accountLabel}
-                        <div className="cell-secondary">
-                          {project.accountEmail}
-                        </div>
-                      </div>
-                    </td>
-                    <td>
-                      <div>
-                        {project.organizationName}
-                        <div className="cell-secondary">
-                          {project.organizationPlan}
-                        </div>
-                      </div>
-                    </td>
-                    <td>{project.region}</td>
-                    <td>
-                      <Status
-                        lifecycle={project.lifecycleStatus}
-                        health={project.healthStatus}
-                      />
-                    </td>
-                    <td className="cell-secondary">
-                      {project.accountLastSuccessfulSyncAt
-                        ? formatRefreshTime(project.accountLastSuccessfulSyncAt)
-                        : "Not yet"}
-                    </td>
-                    <td>
-                      {project.lifecycleStatus === "paused" ? (
-                        <button
-                          className="button button-secondary row-action"
-                          onClick={() => setRestoreTarget(project)}
-                          disabled={preview}
-                        >
-                          Restore
-                        </button>
-                      ) : (
-                        <a
-                          className="button button-quiet row-action"
-                          style={{ color: "var(--muted)" }}
-                          href={`https://supabase.com/dashboard/project/${project.projectRef}`}
-                          target="_blank"
-                          rel="noreferrer"
-                          aria-label={`Open ${project.name} in Supabase`}
-                        >
-                          <ArrowUpRight size={15} />
-                        </a>
-                      )}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </section>
+        </div>
+      ) : (
+        <ProjectTable
+          rows={filters.visible}
+          selection={selection}
+          expanded={expanded}
+          sort={filters.sort}
+          direction={filters.direction}
+          sweeping={sweeping}
+          density={density}
+          disabled={preview}
+          onToggleSort={filters.toggleSort}
+          onToggleSelect={(key) => setSelection((set) => toggleIn(set, key))}
+          onToggleAll={(checked) =>
+            setSelection(
+              checked
+                ? new Set(filters.visible.map((row) => keyOf(row.project)))
+                : new Set(),
+            )
+          }
+          onToggleExpand={(key) => setExpanded((set) => toggleIn(set, key))}
+          onRestore={setRestoreTarget}
+          onEnroll={() => router.push("/keepalive")}
+        />
+      )}
+
+      <AnimatePresence>
+        {selection.size > 0 ? (
+          <BatchBar
+            selectedCount={selection.size}
+            restorableCount={restorable.length}
+            enrollableCount={enrollable.length}
+            pending={busy}
+            onRestore={() => setBatchTarget(restorable)}
+            onEnroll={() => router.push("/keepalive")}
+            onRefresh={() => refresh.mutate()}
+            onClear={() => setSelection(new Set())}
+          />
+        ) : null}
+      </AnimatePresence>
 
       <ConfirmDialog
         open={Boolean(restoreTarget)}
@@ -445,8 +340,8 @@ function DashboardContent() {
             <div>
               Harbor will ask Supabase to restore{" "}
               <strong>{restoreTarget.name}</strong> through the{" "}
-              <strong>{restoreTarget.accountLabel}</strong> account. This may
-              take several minutes.
+              <strong>{restoreTarget.accountLabel}</strong> account. This usually
+              takes several minutes.
               {restore.error ? (
                 <p className="inline-error" style={{ marginTop: 12 }}>
                   {restore.error.message}
@@ -457,7 +352,34 @@ function DashboardContent() {
         }
         confirmLabel="Restore project"
         pending={restore.isPending}
-        onConfirm={() => restoreTarget && restore.mutate(restoreTarget)}
+        onConfirm={() => {
+          if (!restoreTarget) return;
+          restore.mutate(restoreTarget, {
+            onSuccess: () => setRestoreTarget(null),
+          });
+        }}
+      />
+
+      <ConfirmDialog
+        open={Boolean(batchTarget?.length)}
+        onOpenChange={(open) => !open && setBatchTarget(null)}
+        title={`Restore ${batchTarget?.length ?? 0} projects?`}
+        description={
+          <div>
+            Harbor will ask Supabase to restore these projects, two at a time:
+            <ul style={{ margin: "10px 0 0", paddingLeft: 18 }}>
+              {batchTarget?.map((project) => (
+                <li key={keyOf(project)}>
+                  {project.name}{" "}
+                  <span className="cell-secondary">{project.accountLabel}</span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        }
+        confirmLabel="Restore all"
+        pending={batchRestore.isPending}
+        onConfirm={() => batchTarget && batchRestore.mutate(batchTarget)}
       />
     </AppShell>
   );
@@ -465,16 +387,18 @@ function DashboardContent() {
 
 export default function DashboardPage() {
   return (
-    <Suspense
-      fallback={
-        <AppShell>
-          <div className="empty-state">
-            <p>Preparing project dashboard…</p>
-          </div>
-        </AppShell>
-      }
-    >
-      <DashboardContent />
-    </Suspense>
+    <TooltipProvider delayDuration={250}>
+      <Suspense
+        fallback={
+          <AppShell>
+            <div className="empty-state">
+              <p className="page-copy">Preparing the tide table…</p>
+            </div>
+          </AppShell>
+        }
+      >
+        <DashboardContent />
+      </Suspense>
+    </TooltipProvider>
   );
 }
