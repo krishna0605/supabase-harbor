@@ -24,7 +24,10 @@ import { FilterBar } from "@/features/projects/components/filter-bar";
 import { MetricStrip } from "@/features/projects/components/metric-strip";
 import { ProjectTable } from "@/features/projects/components/project-table";
 import { useProjectFilters, type RiskFilter } from "@/features/projects/hooks/use-project-filters";
-import { previewProjects } from "@/features/projects/preview-data";
+import {
+  PREVIEW_EPOCH,
+  previewProjectsAt,
+} from "@/features/projects/preview-data";
 import type { DashboardProject } from "@/features/projects/project-types";
 import { api } from "@/shared/api-client";
 import { useNow } from "@/shared/time/use-now";
@@ -75,14 +78,18 @@ function DashboardContent() {
         : false,
   });
 
-  const projects = useMemo(
-    () => (preview ? previewProjects : (projectsQuery.data ?? [])),
-    [preview, projectsQuery.data],
-  );
-
   // One clock for the whole table, bucketed to the minute, so every row grades
   // its margin against the same instant and relative times tick on their own.
-  const now = useNow();
+  // useNow reports 0 during SSR and the hydrating render; substituting a fixed
+  // epoch keeps both sides identical, and the fixture is generated against the
+  // same value so timestamps and grading never describe different moments.
+  const tick = useNow();
+  const now = tick || PREVIEW_EPOCH;
+
+  const projects = useMemo(
+    () => (preview ? previewProjectsAt(now) : (projectsQuery.data ?? [])),
+    [preview, now, projectsQuery.data],
+  );
 
   const filters = useProjectFilters(projects, now);
 

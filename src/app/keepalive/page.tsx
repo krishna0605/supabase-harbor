@@ -16,6 +16,7 @@ import {
   PAUSE_WINDOW_DAYS,
   protectionOf,
 } from "@/features/keepalive/protection-state";
+import { PREVIEW_EPOCH } from "@/features/projects/preview-data";
 import type { DashboardProject } from "@/features/projects/project-types";
 import { api } from "@/shared/api-client";
 import { absoluteTime, relativeTime } from "@/shared/time/relative";
@@ -49,7 +50,8 @@ export default function KeepalivePage() {
     [projectsQuery.data],
   );
 
-  const now = useNow();
+  const tick = useNow();
+  const now = tick || PREVIEW_EPOCH;
 
   const rows = useMemo(
     () =>

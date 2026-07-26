@@ -12,7 +12,16 @@ import type { DashboardProject } from "@/features/projects/project-types";
 const HOUR = 3_600_000;
 const DAY = 24 * HOUR;
 
-const at = (msAgo: number) => new Date(Date.now() - msAgo).toISOString();
+/**
+ * Timestamps are derived from a caller-supplied clock rather than Date.now() at
+ * module scope. Module scope evaluates once on the server and again on the
+ * client, producing different values and a hydration mismatch. Routing through
+ * the same store-backed clock the table uses keeps both renders identical.
+ */
+export const PREVIEW_EPOCH = Date.parse("2026-07-26T12:00:00.000Z");
+
+const makeAt = (now: number) => (msAgo: number) =>
+  new Date(now - msAgo).toISOString();
 
 const ACCOUNTS = {
   Founder: { id: "preview-a", email: "founder@example.com" },
@@ -35,10 +44,12 @@ type Seed = {
   pingedHoursAgo: number | null;
   syncedHoursAgo?: number;
   errorCode?: string;
-  services?: DashboardProject["services"];
+  services?: "ok" | "degraded";
 };
 
-const SERVICES_OK: DashboardProject["services"] = [
+type At = (msAgo: number) => string;
+
+const servicesOk = (at: At): DashboardProject["services"] => [
   { name: "auth", healthy: true, status: "ACTIVE_HEALTHY", version: "2.180.0", checkedAt: at(HOUR) },
   { name: "db", healthy: true, status: "ACTIVE_HEALTHY", version: "15.8", checkedAt: at(HOUR) },
   { name: "pooler", healthy: true, status: "ACTIVE_HEALTHY", version: null, checkedAt: at(HOUR) },
@@ -47,7 +58,7 @@ const SERVICES_OK: DashboardProject["services"] = [
   { name: "storage", healthy: true, status: "ACTIVE_HEALTHY", version: "1.19.3", checkedAt: at(HOUR) },
 ];
 
-const SERVICES_DEGRADED: DashboardProject["services"] = [
+const servicesDegraded = (at: At): DashboardProject["services"] => [
   { name: "auth", healthy: true, status: "ACTIVE_HEALTHY", version: "2.180.0", checkedAt: at(HOUR) },
   { name: "db", healthy: true, status: "ACTIVE_HEALTHY", version: "15.8", checkedAt: at(HOUR) },
   { name: "pooler", healthy: false, status: "UNHEALTHY", version: null, checkedAt: at(HOUR) },
@@ -81,7 +92,7 @@ const SEEDS: Seed[] = [
     lifecycle: "active",
     health: "healthy",
     pingedHoursAgo: 6 * 24 + 4,
-    services: SERVICES_OK,
+    services: "ok",
   },
   // Paused, never enrolled — the case Harbor exists to stop happening.
   {
@@ -106,7 +117,7 @@ const SEEDS: Seed[] = [
     lifecycle: "active",
     health: "healthy",
     pingedHoursAgo: 4 * 24,
-    services: SERVICES_OK,
+    services: "ok",
   },
   // Slipping and degraded — two independent axes at once.
   {
@@ -119,7 +130,7 @@ const SEEDS: Seed[] = [
     lifecycle: "active",
     health: "unhealthy",
     pingedHoursAgo: 3 * 24 + 6,
-    services: SERVICES_DEGRADED,
+    services: "degraded",
   },
   // Mid-restore.
   {
@@ -144,7 +155,7 @@ const SEEDS: Seed[] = [
     lifecycle: "active",
     health: "healthy",
     pingedHoursAgo: null,
-    services: SERVICES_OK,
+    services: "ok",
   },
   {
     name: "Grove CRM",
@@ -179,7 +190,7 @@ const SEEDS: Seed[] = [
     lifecycle: "active",
     health: "healthy",
     pingedHoursAgo: 6,
-    services: SERVICES_OK,
+    services: "ok",
   },
   {
     name: "Harbor Docs",
@@ -191,7 +202,7 @@ const SEEDS: Seed[] = [
     lifecycle: "active",
     health: "healthy",
     pingedHoursAgo: 11,
-    services: SERVICES_OK,
+    services: "ok",
   },
   {
     name: "Juniper Queue",
@@ -228,29 +239,45 @@ const SEEDS: Seed[] = [
   },
 ];
 
-export const previewProjects: DashboardProject[] = SEEDS.map((seed) => ({
-  accountId: ACCOUNTS[seed.account].id,
-  projectRef: seed.ref,
-  name: seed.name,
-  organizationId: seed.org.toLowerCase().replaceAll(" ", "-"),
-  organizationName: seed.org,
-  organizationPlan: "Free",
-  region: seed.region,
-  cloudProvider: "AWS",
-  rawStatus: seed.rawStatus,
-  lifecycleStatus: seed.lifecycle,
-  healthStatus: seed.health,
-  lastSeenAt: at(HOUR),
-  accountLabel: seed.account,
-  accountEmail: ACCOUNTS[seed.account].email,
-  accountLastSuccessfulSyncAt: at((seed.syncedHoursAgo ?? 1) * HOUR),
-  accountLastErrorCode: seed.errorCode ?? null,
-  keepaliveEnrolled: seed.pingedHoursAgo !== null,
-  keepaliveLastSuccessAt:
-    seed.pingedHoursAgo === null ? null : at(seed.pingedHoursAgo * HOUR),
-  keepaliveLastErrorCode: seed.errorCode ?? null,
-  services: seed.services,
-}));
+/**
+ * Build the fixture against a supplied clock.
+ *
+ * Pass the *same* clock value used to grade protection. The fixture's
+ * timestamps are offsets from it, so if the two diverge every project reads as
+ * freshly pinged — the fixture would be describing one moment and the grader
+ * measuring against another.
+ */
+export function previewProjectsAt(now: number): DashboardProject[] {
+  const at = makeAt(now);
 
-/** Kept for parity with the old fixture's shape. */
+  return SEEDS.map((seed) => ({
+    accountId: ACCOUNTS[seed.account].id,
+    projectRef: seed.ref,
+    name: seed.name,
+    organizationId: seed.org.toLowerCase().replaceAll(" ", "-"),
+    organizationName: seed.org,
+    organizationPlan: "Free",
+    region: seed.region,
+    cloudProvider: "AWS",
+    rawStatus: seed.rawStatus,
+    lifecycleStatus: seed.lifecycle,
+    healthStatus: seed.health,
+    lastSeenAt: at(HOUR),
+    accountLabel: seed.account,
+    accountEmail: ACCOUNTS[seed.account].email,
+    accountLastSuccessfulSyncAt: at((seed.syncedHoursAgo ?? 1) * HOUR),
+    accountLastErrorCode: seed.errorCode ?? null,
+    keepaliveEnrolled: seed.pingedHoursAgo !== null,
+    keepaliveLastSuccessAt:
+      seed.pingedHoursAgo === null ? null : at(seed.pingedHoursAgo * HOUR),
+    keepaliveLastErrorCode: seed.errorCode ?? null,
+    services:
+      seed.services === "ok"
+        ? servicesOk(at)
+        : seed.services === "degraded"
+          ? servicesDegraded(at)
+          : undefined,
+  }));
+}
+
 export const PREVIEW_DAY = DAY;
