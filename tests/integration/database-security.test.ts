@@ -5,21 +5,34 @@ import {
   createUserVault,
   decryptHostedToken,
   encryptHostedToken,
+  encryptKeepaliveCredential,
+  fingerprintKeepaliveCredential,
   fingerprintHostedToken,
   type RootKeyring,
 } from "@/server/crypto/hosted-crypto";
 import { getDatabase } from "@/server/database/client";
 import {
+  claimKeepaliveJobs,
+  enqueueDueKeepaliveJobs,
+  failKeepaliveJob,
+} from "@/server/keepalive/worker-repository";
+import {
   deleteAccount,
   ensureDefaultSettings,
   getAccountSecret,
+  getKeepaliveEnrollment,
   getSettings,
   insertAccountWithCache,
   insertUserVault,
   listAccounts,
+  listKeepaliveEnrollments,
+  listKeepaliveJobs,
   listProjects,
   resetTestDatabase,
+  queueKeepaliveJob,
+  setKeepaliveEnabled,
   updateSettings,
+  upsertKeepaliveEnrollment,
   upsertAccountCache,
 } from "@/server/database/repository";
 import type { TenantContext } from "@/shared/types/auth";
@@ -165,6 +178,184 @@ describe("tenant-isolated Neon persistence", () => {
     await deleteAccount(context, seeded.accountId);
     expect(await listProjects(context)).toHaveLength(0);
     seeded.dek.fill(0);
+  });
+
+  it("isolates encrypted keepalive enrollment and deduplicates manual jobs", async () => {
+    const seeded = await seedAccount();
+    const credential = encryptKeepaliveCredential(
+      "sb_publishable_integration_fixture",
+      context.userId,
+      seeded.accountId,
+      "project-ref",
+      seeded.dek,
+    );
+    await upsertKeepaliveEnrollment({
+      context,
+      accountId: seeded.accountId,
+      projectRef: "project-ref",
+      credential,
+      credentialFingerprint: fingerprintKeepaliveCredential(
+        "sb_publishable_integration_fixture",
+        context.userId,
+        seeded.accountId,
+        "project-ref",
+        seeded.dek,
+      ),
+      credentialType: "publishable",
+      credentialSource: "manual",
+      verifiedAt: new Date().toISOString(),
+      nextRunAt: new Date(Date.now() + 86_400_000).toISOString(),
+    });
+
+    await expect(listKeepaliveEnrollments(context)).resolves.toHaveLength(1);
+    await expect(listKeepaliveEnrollments(otherContext)).resolves.toHaveLength(
+      0,
+    );
+    await expect(
+      getKeepaliveEnrollment(
+        otherContext,
+        seeded.accountId,
+        "project-ref",
+      ),
+    ).resolves.toBeNull();
+
+    const first = await queueKeepaliveJob(
+      context,
+      seeded.accountId,
+      "project-ref",
+    );
+    const second = await queueKeepaliveJob(
+      context,
+      seeded.accountId,
+      "project-ref",
+    );
+    expect(second).toBe(first);
+    await expect(listKeepaliveJobs(context)).resolves.toHaveLength(1);
+    credential.ciphertext.fill(0);
+    credential.nonce.fill(0);
+    credential.tag.fill(0);
+    seeded.dek.fill(0);
+  });
+
+  it("cancels pending work when an enrollment is disabled", async () => {
+    const seeded = await seedAccount();
+    const credential = encryptKeepaliveCredential(
+      "sb_publishable_disable_fixture",
+      context.userId,
+      seeded.accountId,
+      "project-ref",
+      seeded.dek,
+    );
+    await upsertKeepaliveEnrollment({
+      context,
+      accountId: seeded.accountId,
+      projectRef: "project-ref",
+      credential,
+      credentialFingerprint: fingerprintKeepaliveCredential(
+        "sb_publishable_disable_fixture",
+        context.userId,
+        seeded.accountId,
+        "project-ref",
+        seeded.dek,
+      ),
+      credentialType: "publishable",
+      credentialSource: "manual",
+      verifiedAt: new Date().toISOString(),
+      nextRunAt: new Date(Date.now() + 86_400_000).toISOString(),
+    });
+    await queueKeepaliveJob(context, seeded.accountId, "project-ref");
+    await setKeepaliveEnabled(
+      context,
+      seeded.accountId,
+      "project-ref",
+      false,
+    );
+
+    expect((await listKeepaliveJobs(context))[0]?.status).toBe("cancelled");
+    credential.ciphertext.fill(0);
+    credential.nonce.fill(0);
+    credential.tag.fill(0);
+    seeded.dek.fill(0);
+  });
+
+  it("claims durable jobs once and records retry state through the worker role", async () => {
+    const seeded = await seedAccount();
+    const credential = encryptKeepaliveCredential(
+      "sb_publishable_worker_fixture",
+      context.userId,
+      seeded.accountId,
+      "project-ref",
+      seeded.dek,
+    );
+    await upsertKeepaliveEnrollment({
+      context,
+      accountId: seeded.accountId,
+      projectRef: "project-ref",
+      credential,
+      credentialFingerprint: fingerprintKeepaliveCredential(
+        "sb_publishable_worker_fixture",
+        context.userId,
+        seeded.accountId,
+        "project-ref",
+        seeded.dek,
+      ),
+      credentialType: "publishable",
+      credentialSource: "manual",
+      verifiedAt: new Date(Date.now() - 1000).toISOString(),
+      nextRunAt: new Date(Date.now() - 1000).toISOString(),
+    });
+
+    await expect(enqueueDueKeepaliveJobs()).resolves.toBe(1);
+    const claimed = await claimKeepaliveJobs("integration-worker", 5, 120);
+    expect(claimed).toHaveLength(1);
+    await expect(
+      claimKeepaliveJobs("competing-worker", 5, 120),
+    ).resolves.toHaveLength(0);
+    await expect(
+      failKeepaliveJob({
+        job: claimed[0],
+        workerId: "integration-worker",
+        durationMs: 10,
+        errorCode: "KEEPALIVE_TIMEOUT",
+        upstreamStatus: null,
+        retryable: true,
+      }),
+    ).resolves.toBe("retry_wait");
+    expect((await listKeepaliveJobs(context))[0]?.status).toBe("retry_wait");
+    credential.ciphertext.fill(0);
+    credential.nonce.fill(0);
+    credential.tag.fill(0);
+    seeded.dek.fill(0);
+  });
+
+  it("forces RLS and keeps worker functions private", async () => {
+    const result = await getDatabase().execute<{
+      tableName: string;
+      rowSecurity: boolean;
+      forceRowSecurity: boolean;
+    }>(
+      sql`select relname as "tableName",
+          relrowsecurity as "rowSecurity",
+          relforcerowsecurity as "forceRowSecurity"
+        from pg_class
+        where relname in (
+          'keepalive_enrollments', 'keepalive_jobs', 'keepalive_attempts'
+        )
+        order by relname`,
+    );
+    expect(result.rows).toHaveLength(3);
+    expect(
+      result.rows.every((row) => row.rowSecurity && row.forceRowSecurity),
+    ).toBe(true);
+
+    const privileges = await getDatabase().execute<{ exposed: boolean }>(
+      sql`select has_function_privilege(
+        'public',
+        'harbor_internal.claim_keepalive_jobs(text,integer,integer)',
+        'execute'
+      ) as exposed`,
+    );
+    expect(privileges.rows[0]?.exposed).toBe(false);
   });
 
   it("upserts settings inside one tenant", async () => {

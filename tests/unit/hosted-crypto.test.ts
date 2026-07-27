@@ -3,9 +3,12 @@ import { afterEach, describe, expect, it } from "vitest";
 import {
   createUserVault,
   decryptHostedToken,
+  decryptKeepaliveCredential,
   destroyRootKeyring,
   encryptHostedToken,
+  encryptKeepaliveCredential,
   fingerprintHostedToken,
+  fingerprintKeepaliveCredential,
   parseRootKeyring,
   rewrapUserDek,
   type RootKeyring,
@@ -70,6 +73,65 @@ describe("hosted envelope encryption", () => {
     expect(() =>
       decryptHostedToken(envelope, "user-one", "account-two", dek),
     ).toThrow();
+    dek.fill(0);
+  });
+
+  it("binds keepalive credentials to tenant account and project", () => {
+    const keys = keyring(1);
+    allocated.push(keys);
+    const { dek } = createUserVault("user-one", keys);
+    const envelope = encryptKeepaliveCredential(
+      "sb_publishable_fixture",
+      "user-one",
+      "account-one",
+      "projectone",
+      dek,
+    );
+
+    expect(
+      decryptKeepaliveCredential(
+        envelope,
+        "user-one",
+        "account-one",
+        "projectone",
+        dek,
+      ),
+    ).toBe("sb_publishable_fixture");
+    expect(() =>
+      decryptKeepaliveCredential(
+        envelope,
+        "user-two",
+        "account-one",
+        "projectone",
+        dek,
+      ),
+    ).toThrow();
+    expect(() =>
+      decryptKeepaliveCredential(
+        envelope,
+        "user-one",
+        "account-one",
+        "projecttwo",
+        dek,
+      ),
+    ).toThrow();
+    expect(
+      fingerprintKeepaliveCredential(
+        "sb_publishable_fixture",
+        "user-one",
+        "account-one",
+        "projectone",
+        dek,
+      ),
+    ).not.toBe(
+      fingerprintKeepaliveCredential(
+        "sb_publishable_fixture",
+        "user-one",
+        "account-one",
+        "projecttwo",
+        dek,
+      ),
+    );
     dek.fill(0);
   });
 
