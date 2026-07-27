@@ -73,6 +73,19 @@ describe("hosted envelope encryption", () => {
     dek.fill(0);
   });
 
+  it("scopes duplicate detection to each user's independent DEK", () => {
+    const keys = keyring(1);
+    allocated.push(keys);
+    const first = createUserVault("user-one", keys);
+    const second = createUserVault("user-two", keys);
+
+    expect(fingerprintHostedToken("same-token", first.dek)).not.toBe(
+      fingerprintHostedToken("same-token", second.dek),
+    );
+    first.dek.fill(0);
+    second.dek.fill(0);
+  });
+
   it("rewraps only the user DEK during root-key rotation", () => {
     const oldKeys = keyring(1);
     const rotated = keyring(2, oldKeys.current);
