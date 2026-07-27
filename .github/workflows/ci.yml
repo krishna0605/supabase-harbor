@@ -5,6 +5,10 @@ on:
     branches: [main]
   pull_request:
 
+concurrency:
+  group: neon-integration-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
   verify:
     runs-on: windows-latest
@@ -19,5 +23,16 @@ jobs:
       - run: npm run lint
       - run: npm run typecheck
       - run: npm run test
+      - run: npm run db:migrate
+        if: github.event_name == 'push'
+        env:
+          NODE_ENV: test
+          TEST_DATABASE_URL_UNPOOLED: ${{ secrets.TEST_DATABASE_URL_UNPOOLED }}
+      - run: npm run test:integration
+        if: github.event_name == 'push'
+        env:
+          TEST_DATABASE_URL: ${{ secrets.TEST_DATABASE_URL }}
+          TEST_DATABASE_URL_UNPOOLED: ${{ secrets.TEST_DATABASE_URL_UNPOOLED }}
+          ALLOW_DATABASE_RESET: "1"
       - run: npm run build
       - run: npm audit --omit=dev --audit-level=high

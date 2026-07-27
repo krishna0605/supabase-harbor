@@ -18,7 +18,10 @@ if (!connectionString) {
   );
 }
 
-const database = drizzle(neon(connectionString));
-await migrate(database, { migrationsFolder: "./drizzle" });
+async function main() {
+  const database = drizzle(neon(connectionString!));
+  await migrate(database, { migrationsFolder: "./drizzle" });
+  console.log("Supabase Harbor database migrations are complete.");
+}
 
-console.log("Supabase Harbor database migrations are complete.");
+void main();
