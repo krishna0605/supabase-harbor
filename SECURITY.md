@@ -20,8 +20,8 @@ Use GitHub's private vulnerability-reporting feature for this repository:
    concept.
 
 Do not open a public issue for an unpatched vulnerability. Never include a real
-Supabase PAT, master password, vault database, encryption key, session cookie, or
-private customer data in a report.
+Supabase PAT, master password, Neon connection string, database export, encryption
+key, session cookie, or private customer data in a report.
 
 You should receive an acknowledgement within seven days. We will coordinate
 validation, remediation, disclosure timing, and credit through the private report.
@@ -32,7 +32,7 @@ The `0.1.x` line is a local Windows application bound to `127.0.0.1`. It is not
 supported behind a public reverse proxy, tunnel, container port, LAN listener, or
 cloud hosting platform.
 
-Encryption protects PATs at rest if the database is copied. It does not defend
+Envelope encryption protects PATs stored in Neon. It does not defend
 against malware, administrator-level access, process-memory inspection, or a
 compromised browser running under the same Windows account.
 

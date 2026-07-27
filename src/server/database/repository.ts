@@ -3,7 +3,6 @@ import type { BatchItem } from "drizzle-orm/batch";
 import {
   and,
   asc,
-  desc,
   eq,
   isNull,
   notInArray,

@@ -9,13 +9,15 @@ A private, local-first dashboard for managing multiple authorized Supabase accou
 without switching browser profiles.
 
 Supabase Harbor validates Personal Access Tokens against the official Management API,
-encrypts them locally, caches organization and project metadata in SQLite, and
+encrypts them with a local vault, caches organization and project metadata in Neon
+Postgres, and
 provides one carefully scoped upstream write operation: restoring a paused project.
 
 > [!IMPORTANT]
-> The published `0.1.x` line is the Windows local-first edition. It is **not yet**
+> The published `0.1.x` line is the Windows local-first edition with Neon-backed
+> persistence. It is **not yet**
 > designed for Vercel, Railway, public internet exposure, or multiple Harbor users.
-> The planned cloud architecture requires PostgreSQL, hosted authentication, Supabase
+> The planned cloud architecture still requires hosted authentication, Supabase
 > OAuth, multi-tenant authorization, and managed key storage.
 
 Supabase Harbor is unofficial and is not affiliated with, maintained by, or endorsed
@@ -30,7 +32,8 @@ by Supabase.
 - Cached data remains available when one account fails
 - Paused-project restore with status reconciliation and local audit history
 - Loopback-only server with Host, Origin, CSRF, CSP, and session protections
-- No PATs in browser storage, client bundles, API responses, logs, or plaintext SQLite
+- No PATs in browser storage, client bundles, API responses, logs, or plaintext
+  PostgreSQL values
 - One-command Windows launcher after setup
 
 ## Architecture
@@ -42,7 +45,7 @@ flowchart LR
     Next["Next.js UI and route handlers"]
     Session["In-memory vault session"]
     Crypto["scrypt and AES-256-GCM"]
-    SQLite["SQLite WAL cache"]
+    Neon["Neon Serverless Postgres"]
     Adapter["Supabase Management API adapter"]
     Supabase["api.supabase.com"]
 
@@ -50,7 +53,7 @@ flowchart LR
     Browser --> Next
     Next --> Session
     Session --> Crypto
-    Next --> SQLite
+    Next --> Neon
     Next --> Adapter
     Adapter --> Supabase
 ```
@@ -86,12 +89,15 @@ Deliberately excluded from `0.1.x`:
 - Node.js 24.x LTS
 - PowerShell 5.1 or newer
 - A current Chromium, Edge, or Firefox browser
+- A Neon project and database
 
 ## Install
 
 ```powershell
 git clone https://github.com/krishna0605/supabase-harbor.git
 Set-Location supabase-harbor
+Copy-Item .env.example .env.local
+# Replace the placeholder DATABASE_URL values in .env.local.
 powershell -ExecutionPolicy Bypass -File .\scripts\setup.ps1
 ```
 
@@ -100,8 +106,8 @@ The setup script:
 1. Verifies Windows, Git, and Node.js.
 2. Installs the exact dependency lockfile.
 3. Runs linting, type checks, tests, and a production build.
-4. Creates `%LOCALAPPDATA%\SupabaseHarbor` with current-user permissions.
-5. Initializes SQLite without overwriting an existing vault.
+4. Applies committed Drizzle migrations through the direct Neon connection.
+5. Confirms Neon readiness without overwriting an existing vault.
 
 ## Run
 
@@ -128,30 +134,30 @@ encrypted token. The PAT is never displayed again.
 Use a disposable account or project for the first live smoke test. Never use
 production credentials in fixtures, CI, issues, or screenshots.
 
-## Local data
+## Data locations
 
 ```text
 %LOCALAPPDATA%\SupabaseHarbor\
-├─ harbor.db
-├─ backups\
 └─ logs\
    └─ harbor.log
 ```
 
-Only non-secret runtime settings are accepted:
+Vault envelopes and cached metadata are stored in Neon Postgres. Connection strings
+are secrets and belong only in ignored environment files:
 
 ```text
+DATABASE_URL=<pooled Neon connection>
+DATABASE_URL_UNPOOLED=<direct Neon connection>
 HARBOR_PORT=47832
-HARBOR_DATA_DIR=%LOCALAPPDATA%\SupabaseHarbor
 HARBOR_LOG_LEVEL=info
 ```
 
-The host address is intentionally not configurable. PATs and master passwords are
-never accepted through environment variables.
+The host address is intentionally not configurable. Supabase PATs and master
+passwords are never accepted through environment variables.
 
 ## Security model
 
-Harbor protects copied database files by encrypting PATs at rest. It cannot protect
+Harbor protects stored token envelopes by encrypting PATs at rest. It cannot protect
 against malware, administrator-level access, process-memory inspection, or a
 compromised browser running under the same Windows account.
 
@@ -170,6 +176,7 @@ npm run dev
 npm run lint
 npm run typecheck
 npm run test
+npm run test:integration
 npm run build
 npm run verify
 ```
@@ -183,6 +190,7 @@ is never returned by a production API.
 - [Design direction](DESIGN.md)
 - [Architecture](docs/architecture.md)
 - [Local hosting](docs/local-hosting.md)
+- [Neon Postgres](docs/neon-postgres.md)
 - [Threat model](docs/threat-model.md)
 - [Supabase API compatibility](docs/supabase-api-compatibility.md)
 
@@ -191,11 +199,11 @@ is never returned by a production API.
 - Live Supabase smoke-test fixtures and compatibility reporting
 - Encrypted vault export and import
 - Optional desktop packaging
-- Cloud edition with PostgreSQL and hosted authentication
+- Cloud edition with hosted authentication and tenant isolation
 - Supabase Management OAuth with PKCE
 - Railway API/worker and Vercel frontend deployment
 
-Cloud support will not reuse the local master-password and SQLite security boundary.
+Cloud support will not reuse the local master-password security boundary.
 See [the cloud roadmap](docs/cloud-roadmap.md).
 
 ## Contributing

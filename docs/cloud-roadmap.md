@@ -1,7 +1,7 @@
 # Cloud roadmap
 
 The local edition cannot be made safe for public hosting by changing only its host
-binding. Its SQLite persistence, process-memory vault, and single-user session model
+binding. Its process-memory vault and single-user session model
 are deliberate local security boundaries.
 
 ## Proposed hosted architecture
@@ -11,7 +11,7 @@ flowchart LR
   Browser["Browser"] --> Web["Next.js on Vercel"]
   Web --> Proxy["Same-origin API proxy"]
   Proxy --> API["Railway API"]
-  API --> DB["Railway PostgreSQL"]
+  API --> DB["Neon Postgres"]
   API --> KMS["Managed KMS"]
   API --> OAuth["Supabase Management OAuth"]
   Worker["Railway worker"] --> DB
@@ -23,7 +23,8 @@ flowchart LR
 
 1. Split browser UI, API, worker, and shared domain packages.
 2. Add hosted Harbor authentication with secure database-backed sessions.
-3. Replace SQLite with PostgreSQL and add non-null tenant ownership to every row.
+3. Add non-null tenant ownership and row-level isolation to every existing PostgreSQL
+   table.
 4. Replace PAT-first onboarding with Supabase Management OAuth using PKCE and state.
 5. Store encrypted access and refresh tokens using envelope encryption and managed
    key wrapping.

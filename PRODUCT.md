@@ -12,8 +12,9 @@ activity.
 - Primary user: a technical Windows 10/11 user managing their own Supabase accounts.
 - Runtime: one local Next.js process bound only to `127.0.0.1`.
 - Daily setting: a desktop browser, often during a quick project-status check.
-- Data posture: cached metadata in local SQLite; Personal Access Tokens encrypted at
-  rest and only decrypted in server memory while the vault is unlocked.
+- Data posture: cached metadata and encrypted Personal Access Token envelopes in Neon
+  Postgres; tokens are only decrypted in local server memory while the vault is
+  unlocked.
 
 ## Core jobs
 
@@ -42,7 +43,7 @@ and remote access.
 
 Ten accounts and fifty cached projects remain responsive; one account failure never
 blocks the rest; an inactive project can be restored and reconciled; no plaintext PAT
-appears in SQLite, logs, browser storage, API responses, or client bundles.
+appears in PostgreSQL, logs, browser storage, API responses, or client bundles.
 
 ## Evidence
 

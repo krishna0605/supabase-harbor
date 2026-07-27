@@ -228,10 +228,10 @@ export default function SettingsPage() {
         <div className="setting-section">
           <h2>
             <Database size={16} style={{ display: "inline", marginRight: 8 }} />
-            Local files
+            Data locations
           </h2>
           <p>
-            Database: <code>%LOCALAPPDATA%\SupabaseHarbor\harbor.db</code>
+            Database: <code>Connected Neon Postgres database</code>
             <br />
             Logs: <code>%LOCALAPPDATA%\SupabaseHarbor\logs\harbor.log</code>
           </p>
@@ -243,11 +243,12 @@ export default function SettingsPage() {
               size={16}
               style={{ display: "inline", marginRight: 8 }}
             />
-            Reset local vault
+            Reset Harbor data
           </h2>
           <p>
-            Deletes Harbor’s local encrypted tokens, project cache, settings,
-            and activity. It does not delete anything in Supabase.
+            Deletes Harbor’s encrypted tokens, project cache, settings, and
+            activity from the connected Neon database. It does not delete
+            anything in Supabase.
           </p>
           <div className="setting-form">
             <div className="field">
