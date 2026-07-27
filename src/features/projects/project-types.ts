@@ -17,12 +17,7 @@ export type DashboardProject = {
   cloudProvider: string;
   rawStatus: string;
   lifecycleStatus:
-    | "active"
-    | "paused"
-    | "transitioning"
-    | "failed"
-    | "removed"
-    | "unknown";
+    "active" | "paused" | "transitioning" | "failed" | "removed" | "unknown";
   healthStatus: "healthy" | "unhealthy" | "unknown";
   lastSeenAt: string;
   accountLabel: string;

@@ -14,9 +14,11 @@ function legacy(role: string) {
 
 describe("keepalive credential validation", () => {
   it("accepts publishable and legacy anon keys", () => {
-    expect(validateKeepaliveCredential("sb_publishable_fixture")).toMatchObject({
-      type: "publishable",
-    });
+    expect(validateKeepaliveCredential("sb_publishable_fixture")).toMatchObject(
+      {
+        type: "publishable",
+      },
+    );
     expect(validateKeepaliveCredential(legacy("anon"))).toMatchObject({
       type: "legacy_anon",
     });

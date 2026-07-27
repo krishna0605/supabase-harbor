@@ -8,9 +8,8 @@ if (!workerDatabaseUrl) {
 }
 process.env.DATABASE_URL = workerDatabaseUrl;
 
-const { runKeepaliveSweep, workerOptions } = await import(
-  "../src/worker/sweep"
-);
+const { runKeepaliveSweep, workerOptions } =
+  await import("../src/worker/sweep");
 
 const result = await runKeepaliveSweep(workerOptions());
 console.log(

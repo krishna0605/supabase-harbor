@@ -11,9 +11,9 @@ describe("keepalive worker configuration", () => {
   });
 
   it("rejects unsafe concurrency and deadlines", () => {
-    expect(() =>
-      workerOptions({ KEEPALIVE_MAX_CONCURRENCY: "0" }),
-    ).toThrow("integer from 1 to 20");
+    expect(() => workerOptions({ KEEPALIVE_MAX_CONCURRENCY: "0" })).toThrow(
+      "integer from 1 to 20",
+    );
     expect(() =>
       workerOptions({ KEEPALIVE_SWEEP_TIMEOUT_MS: "999999" }),
     ).toThrow("integer from 30000 to 240000");

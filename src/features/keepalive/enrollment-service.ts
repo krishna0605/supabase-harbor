@@ -41,11 +41,7 @@ export async function enrollKeepalive(
   },
   dek: Buffer,
 ) {
-  const project = await getProject(
-    context,
-    input.accountId,
-    input.projectRef,
-  );
+  const project = await getProject(context, input.accountId, input.projectRef);
   const dashboardProject = (await listProjects(context)).find(
     (candidate) =>
       candidate.accountId === input.accountId &&

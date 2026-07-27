@@ -4,10 +4,7 @@ import {
   removeKeepalive,
   toggleKeepalive,
 } from "@/features/keepalive/enrollment-service";
-import {
-  requireHarborUser,
-  withUserDek,
-} from "@/server/auth/harbor-auth";
+import { requireHarborUser, withUserDek } from "@/server/auth/harbor-auth";
 import { ok } from "@/server/http/responses";
 import { readJson, route } from "@/server/http/route-helpers";
 
@@ -55,12 +52,7 @@ export async function PATCH(request: Request, context: Context) {
     );
     const { ref } = await context.params;
     return ok(
-      await toggleKeepalive(
-        tenant,
-        input.accountId,
-        ref,
-        input.enabled,
-      ),
+      await toggleKeepalive(tenant, input.accountId, ref, input.enabled),
     );
   })(request);
 }

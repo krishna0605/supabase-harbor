@@ -2,14 +2,14 @@
 
 Harbor v0.1.0 uses:
 
-| Operation              | Endpoint                          |
-| ---------------------- | --------------------------------- |
-| Account validation     | `GET /v1/profile`                 |
-| Organizations          | `GET /v1/organizations`           |
-| Projects               | `GET /v1/projects`                |
-| Project reconciliation | `GET /v1/projects/{ref}`          |
-| Service health         | `GET /v1/projects/{ref}/health`   |
-| Restore                | `POST /v1/projects/{ref}/restore` |
+| Operation              | Endpoint                                      |
+| ---------------------- | --------------------------------------------- |
+| Account validation     | `GET /v1/profile`                             |
+| Organizations          | `GET /v1/organizations`                       |
+| Projects               | `GET /v1/projects`                            |
+| Project reconciliation | `GET /v1/projects/{ref}`                      |
+| Service health         | `GET /v1/projects/{ref}/health`               |
+| Restore                | `POST /v1/projects/{ref}/restore`             |
 | Project API keys       | `GET /v1/projects/{ref}/api-keys?reveal=true` |
 
 Health requests use

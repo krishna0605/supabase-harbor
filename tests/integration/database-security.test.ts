@@ -112,9 +112,9 @@ describe("tenant-isolated Neon persistence", () => {
       sql`select current_database() as database, current_setting('server_version') as version`,
     );
     expect(result.rows[0]?.database).toBe("harbor_test");
-    expect(Number(result.rows[0]?.version.split(".")[0])).toBeGreaterThanOrEqual(
-      18,
-    );
+    expect(
+      Number(result.rows[0]?.version.split(".")[0]),
+    ).toBeGreaterThanOrEqual(18);
   });
 
   it("round-trips encrypted bytea without plaintext leakage", async () => {
@@ -212,11 +212,7 @@ describe("tenant-isolated Neon persistence", () => {
       0,
     );
     await expect(
-      getKeepaliveEnrollment(
-        otherContext,
-        seeded.accountId,
-        "project-ref",
-      ),
+      getKeepaliveEnrollment(otherContext, seeded.accountId, "project-ref"),
     ).resolves.toBeNull();
 
     const first = await queueKeepaliveJob(
@@ -264,12 +260,7 @@ describe("tenant-isolated Neon persistence", () => {
       nextRunAt: new Date(Date.now() + 86_400_000).toISOString(),
     });
     await queueKeepaliveJob(context, seeded.accountId, "project-ref");
-    await setKeepaliveEnabled(
-      context,
-      seeded.accountId,
-      "project-ref",
-      false,
-    );
+    await setKeepaliveEnabled(context, seeded.accountId, "project-ref", false);
 
     expect((await listKeepaliveJobs(context))[0]?.status).toBe("cancelled");
     credential.ciphertext.fill(0);

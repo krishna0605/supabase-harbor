@@ -50,21 +50,93 @@ type Seed = {
 type At = (msAgo: number) => string;
 
 const servicesOk = (at: At): DashboardProject["services"] => [
-  { name: "auth", healthy: true, status: "ACTIVE_HEALTHY", version: "2.180.0", checkedAt: at(HOUR) },
-  { name: "db", healthy: true, status: "ACTIVE_HEALTHY", version: "15.8", checkedAt: at(HOUR) },
-  { name: "pooler", healthy: true, status: "ACTIVE_HEALTHY", version: null, checkedAt: at(HOUR) },
-  { name: "realtime", healthy: true, status: "ACTIVE_HEALTHY", version: "2.34.7", checkedAt: at(HOUR) },
-  { name: "rest", healthy: true, status: "ACTIVE_HEALTHY", version: "12.2.3", checkedAt: at(HOUR) },
-  { name: "storage", healthy: true, status: "ACTIVE_HEALTHY", version: "1.19.3", checkedAt: at(HOUR) },
+  {
+    name: "auth",
+    healthy: true,
+    status: "ACTIVE_HEALTHY",
+    version: "2.180.0",
+    checkedAt: at(HOUR),
+  },
+  {
+    name: "db",
+    healthy: true,
+    status: "ACTIVE_HEALTHY",
+    version: "15.8",
+    checkedAt: at(HOUR),
+  },
+  {
+    name: "pooler",
+    healthy: true,
+    status: "ACTIVE_HEALTHY",
+    version: null,
+    checkedAt: at(HOUR),
+  },
+  {
+    name: "realtime",
+    healthy: true,
+    status: "ACTIVE_HEALTHY",
+    version: "2.34.7",
+    checkedAt: at(HOUR),
+  },
+  {
+    name: "rest",
+    healthy: true,
+    status: "ACTIVE_HEALTHY",
+    version: "12.2.3",
+    checkedAt: at(HOUR),
+  },
+  {
+    name: "storage",
+    healthy: true,
+    status: "ACTIVE_HEALTHY",
+    version: "1.19.3",
+    checkedAt: at(HOUR),
+  },
 ];
 
 const servicesDegraded = (at: At): DashboardProject["services"] => [
-  { name: "auth", healthy: true, status: "ACTIVE_HEALTHY", version: "2.180.0", checkedAt: at(HOUR) },
-  { name: "db", healthy: true, status: "ACTIVE_HEALTHY", version: "15.8", checkedAt: at(HOUR) },
-  { name: "pooler", healthy: false, status: "UNHEALTHY", version: null, checkedAt: at(HOUR) },
-  { name: "realtime", healthy: false, status: "TIMEOUT", version: "2.34.7", checkedAt: at(HOUR) },
-  { name: "rest", healthy: true, status: "ACTIVE_HEALTHY", version: "12.2.3", checkedAt: at(HOUR) },
-  { name: "storage", healthy: true, status: "ACTIVE_HEALTHY", version: "1.19.3", checkedAt: at(HOUR) },
+  {
+    name: "auth",
+    healthy: true,
+    status: "ACTIVE_HEALTHY",
+    version: "2.180.0",
+    checkedAt: at(HOUR),
+  },
+  {
+    name: "db",
+    healthy: true,
+    status: "ACTIVE_HEALTHY",
+    version: "15.8",
+    checkedAt: at(HOUR),
+  },
+  {
+    name: "pooler",
+    healthy: false,
+    status: "UNHEALTHY",
+    version: null,
+    checkedAt: at(HOUR),
+  },
+  {
+    name: "realtime",
+    healthy: false,
+    status: "TIMEOUT",
+    version: "2.34.7",
+    checkedAt: at(HOUR),
+  },
+  {
+    name: "rest",
+    healthy: true,
+    status: "ACTIVE_HEALTHY",
+    version: "12.2.3",
+    checkedAt: at(HOUR),
+  },
+  {
+    name: "storage",
+    healthy: true,
+    status: "ACTIVE_HEALTHY",
+    version: "1.19.3",
+    checkedAt: at(HOUR),
+  },
 ];
 
 const SEEDS: Seed[] = [

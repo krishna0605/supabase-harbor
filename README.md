@@ -95,14 +95,14 @@ Not included yet:
 
 ## Phase status
 
-| Phase                                               | Status                                                     |
-| --------------------------------------------------- | ---------------------------------------------------------- |
-| 0 — Design foundation                               | Complete                                                   |
-| 1 — Tide-table UI                                   | Complete                                                   |
-| 2 — Neon Postgres                                   | Complete                                                   |
-| 3 — Hosted auth, tenant isolation, and secret model | Code complete; production activation pending               |
-| 4 — Keepalive engine and Railway worker             | Code complete locally; production migration pending        |
-| 5 — Vercel/Railway deployment and hardening         | Pending                                                    |
+| Phase                                               | Status                                              |
+| --------------------------------------------------- | --------------------------------------------------- |
+| 0 — Design foundation                               | Complete                                            |
+| 1 — Tide-table UI                                   | Complete                                            |
+| 2 — Neon Postgres                                   | Complete                                            |
+| 3 — Hosted auth, tenant isolation, and secret model | Code complete; production activation pending        |
+| 4 — Keepalive engine and Railway worker             | Code complete locally; production migration pending |
+| 5 — Vercel/Railway deployment and hardening         | Pending                                             |
 
 ## Requirements
 

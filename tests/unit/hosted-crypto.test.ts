@@ -46,12 +46,12 @@ describe("hosted envelope encryption", () => {
     );
 
     expect(first.nonce.equals(second.nonce)).toBe(false);
-    expect(
-      decryptHostedToken(first, "user-one", "account-one", opened),
-    ).toBe("sbp_hosted_fixture_secret");
-    expect(
+    expect(decryptHostedToken(first, "user-one", "account-one", opened)).toBe(
+      "sbp_hosted_fixture_secret",
+    );
+    expect(fingerprintHostedToken("sbp_hosted_fixture_secret", opened)).toBe(
       fingerprintHostedToken("sbp_hosted_fixture_secret", opened),
-    ).toBe(fingerprintHostedToken("sbp_hosted_fixture_secret", opened));
+    );
     opened.fill(0);
     dek.fill(0);
   });
@@ -164,12 +164,7 @@ describe("hosted envelope encryption", () => {
 
     expect(rewrapped.rootKeyVersion).toBe(2);
     expect(
-      decryptHostedToken(
-        token,
-        "user-rotate",
-        "account-rotate",
-        reopened,
-      ),
+      decryptHostedToken(token, "user-rotate", "account-rotate", reopened),
     ).toBe("sbp_rotation_fixture");
     reopened.fill(0);
     dek.fill(0);

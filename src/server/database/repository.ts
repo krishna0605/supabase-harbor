@@ -1,14 +1,6 @@
 import { randomUUID } from "node:crypto";
 import type { BatchItem } from "drizzle-orm/batch";
-import {
-  and,
-  asc,
-  desc,
-  eq,
-  isNull,
-  notInArray,
-  sql,
-} from "drizzle-orm";
+import { and, asc, desc, eq, isNull, notInArray, sql } from "drizzle-orm";
 import type {
   CipherEnvelope,
   UserVaultRecord,
@@ -41,15 +33,13 @@ async function runTenantBatch(
   queries: BatchItem<"pg">[],
 ) {
   if (queries.length === 0) return [];
-  const results = await getDatabase().batch(
-    [
-      getDatabase().execute(sql.raw("set local role harbor_runtime")),
-      getDatabase().execute(
-        sql`select set_config('harbor.user_id', ${context.userId}, true)`,
-      ),
-      ...queries,
-    ] as [BatchItem<"pg">, ...BatchItem<"pg">[]],
-  );
+  const results = await getDatabase().batch([
+    getDatabase().execute(sql.raw("set local role harbor_runtime")),
+    getDatabase().execute(
+      sql`select set_config('harbor.user_id', ${context.userId}, true)`,
+    ),
+    ...queries,
+  ] as [BatchItem<"pg">, ...BatchItem<"pg">[]]);
   return results.slice(2);
 }
 
@@ -82,14 +72,12 @@ export type CachedProjectInput = {
 };
 
 export async function resolveGithubId(userId: string) {
-  const [, result] = await getDatabase().batch(
-    [
-      getDatabase().execute(sql.raw("set local role harbor_runtime")),
-      getDatabase().execute<{ githubId: string | null }>(
-        sql`select public.harbor_github_id(${userId}) as "githubId"`,
-      ),
-    ],
-  );
+  const [, result] = await getDatabase().batch([
+    getDatabase().execute(sql.raw("set local role harbor_runtime")),
+    getDatabase().execute<{ githubId: string | null }>(
+      sql`select public.harbor_github_id(${userId}) as "githubId"`,
+    ),
+  ]);
   return result.rows[0]?.githubId ?? null;
 }
 
@@ -183,10 +171,7 @@ export async function getAccountSecret(
       })
       .from(accounts)
       .where(
-        and(
-          eq(accounts.userId, context.userId),
-          eq(accounts.id, accountId),
-        ),
+        and(eq(accounts.userId, context.userId), eq(accounts.id, accountId)),
       )
       .limit(1),
   );
@@ -231,10 +216,7 @@ export async function listAccountSecrets(
       })
       .from(accounts)
       .where(
-        and(
-          eq(accounts.userId, context.userId),
-          eq(accounts.enabled, true),
-        ),
+        and(eq(accounts.userId, context.userId), eq(accounts.enabled, true)),
       )
       .orderBy(asc(accounts.label)),
   );
@@ -450,10 +432,7 @@ export async function upsertAccountCache(
         updatedAt: timestamp,
       })
       .where(
-        and(
-          eq(accounts.userId, context.userId),
-          eq(accounts.id, accountId),
-        ),
+        and(eq(accounts.userId, context.userId), eq(accounts.id, accountId)),
       ),
   ]);
 }
@@ -468,10 +447,7 @@ export async function setAccountError(
       .update(accounts)
       .set({ lastErrorCode: errorCode, updatedAt: now() })
       .where(
-        and(
-          eq(accounts.userId, context.userId),
-          eq(accounts.id, accountId),
-        ),
+        and(eq(accounts.userId, context.userId), eq(accounts.id, accountId)),
       ),
   ]);
 }
@@ -500,10 +476,7 @@ export async function updateAccount(
         updatedAt: now(),
       })
       .where(
-        and(
-          eq(accounts.userId, context.userId),
-          eq(accounts.id, accountId),
-        ),
+        and(eq(accounts.userId, context.userId), eq(accounts.id, accountId)),
       ),
   ]);
 }
@@ -513,10 +486,7 @@ export async function deleteAccount(context: TenantContext, accountId: string) {
     getDatabase()
       .delete(accounts)
       .where(
-        and(
-          eq(accounts.userId, context.userId),
-          eq(accounts.id, accountId),
-        ),
+        and(eq(accounts.userId, context.userId), eq(accounts.id, accountId)),
       ),
   ]);
 }
@@ -778,9 +748,7 @@ export async function completeSyncRun(
         errorCode: errorCode ?? null,
         completedAt: now(),
       })
-      .where(
-        and(eq(syncRuns.userId, context.userId), eq(syncRuns.id, id)),
-      ),
+      .where(and(eq(syncRuns.userId, context.userId), eq(syncRuns.id, id))),
   ]);
 }
 
@@ -948,7 +916,9 @@ export async function getKeepaliveEnrollment(
   accountId: string,
   projectRef: string,
 ) {
-  const rows = await runTenantQuery<(typeof keepaliveEnrollments.$inferSelect)[]>(
+  const rows = await runTenantQuery<
+    (typeof keepaliveEnrollments.$inferSelect)[]
+  >(
     context,
     getDatabase()
       .select()
@@ -1234,10 +1204,7 @@ export async function queueKeepaliveJob(
   return rows[0]?.id ?? id;
 }
 
-export async function listKeepaliveJobs(
-  context: TenantContext,
-  limit = 50,
-) {
+export async function listKeepaliveJobs(context: TenantContext, limit = 50) {
   return runTenantQuery<
     Array<{
       id: string;

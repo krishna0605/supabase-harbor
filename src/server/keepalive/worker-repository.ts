@@ -1,7 +1,10 @@
 import { sql } from "drizzle-orm";
 import type { BatchItem } from "drizzle-orm/batch";
 import { getDatabase } from "@/server/database/client";
-import type { CipherEnvelope, UserVaultRecord } from "@/server/crypto/hosted-crypto";
+import type {
+  CipherEnvelope,
+  UserVaultRecord,
+} from "@/server/crypto/hosted-crypto";
 
 export type ClaimedKeepaliveJob = {
   userId: string;
@@ -24,12 +27,10 @@ export type KeepaliveJobPayload = {
 };
 
 async function workerQuery<T>(query: BatchItem<"pg">) {
-  const [, result] = await getDatabase().batch(
-    [
-      getDatabase().execute(sql.raw("set local role harbor_worker")),
-      query,
-    ] as [BatchItem<"pg">, BatchItem<"pg">],
-  );
+  const [, result] = await getDatabase().batch([
+    getDatabase().execute(sql.raw("set local role harbor_worker")),
+    query,
+  ] as [BatchItem<"pg">, BatchItem<"pg">]);
   return result as { rows: T[] };
 }
 

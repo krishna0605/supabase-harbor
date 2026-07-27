@@ -8,9 +8,7 @@ import {
   parseRootKeyring,
   unwrapUserDek,
 } from "@/server/crypto/hosted-crypto";
-import {
-  selectKeepaliveCredential,
-} from "@/features/keepalive/credential-validation";
+import { selectKeepaliveCredential } from "@/features/keepalive/credential-validation";
 import { pingProject } from "@/server/keepalive/heartbeat-client";
 import {
   claimKeepaliveJobs,
@@ -41,7 +39,9 @@ function boundedInteger(
 ) {
   const parsed = Number(value ?? fallback);
   if (!Number.isInteger(parsed) || parsed < minimum || parsed > maximum) {
-    throw new Error(`Worker setting must be an integer from ${minimum} to ${maximum}.`);
+    throw new Error(
+      `Worker setting must be an integer from ${minimum} to ${maximum}.`,
+    );
   }
   return parsed;
 }
@@ -54,12 +54,7 @@ export function workerOptions(
       environment.KEEPALIVE_WORKER_ID ||
       environment.RAILWAY_REPLICA_ID ||
       `local-${process.pid}`,
-    claimLimit: boundedInteger(
-      environment.KEEPALIVE_CLAIM_LIMIT,
-      25,
-      1,
-      100,
-    ),
+    claimLimit: boundedInteger(environment.KEEPALIVE_CLAIM_LIMIT, 25, 1, 100),
     concurrency: boundedInteger(
       environment.KEEPALIVE_MAX_CONCURRENCY,
       5,

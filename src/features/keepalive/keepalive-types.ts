@@ -18,12 +18,7 @@ export type KeepaliveJobSummary = {
   projectRef: string;
   trigger: "scheduled" | "manual" | "enrollment_validation";
   status:
-    | "pending"
-    | "running"
-    | "retry_wait"
-    | "succeeded"
-    | "failed"
-    | "cancelled";
+    "pending" | "running" | "retry_wait" | "succeeded" | "failed" | "cancelled";
   scheduledFor: string;
   attemptCount: number;
   lastErrorCode: string | null;

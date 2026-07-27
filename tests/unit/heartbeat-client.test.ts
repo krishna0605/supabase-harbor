@@ -1,8 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import {
-  heartbeatUrl,
-  pingProject,
-} from "@/server/keepalive/heartbeat-client";
+import { heartbeatUrl, pingProject } from "@/server/keepalive/heartbeat-client";
 
 afterEach(() => vi.unstubAllGlobals());
 

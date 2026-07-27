@@ -125,11 +125,14 @@ export default function KeepalivePage() {
 
   const runNow = useMutation({
     mutationFn: (project: DashboardProject) =>
-      api(`/api/projects/${encodeURIComponent(project.projectRef)}/keepalive/run`, {
-        method: "POST",
-        interaction: true,
-        body: JSON.stringify({ accountId: project.accountId }),
-      }),
+      api(
+        `/api/projects/${encodeURIComponent(project.projectRef)}/keepalive/run`,
+        {
+          method: "POST",
+          interaction: true,
+          body: JSON.stringify({ accountId: project.accountId }),
+        },
+      ),
     onSuccess: async () => {
       setMessage("Heartbeat queued. The worker will pick it up shortly.");
       await refresh();
@@ -152,7 +155,10 @@ export default function KeepalivePage() {
     onError: (error: Error) => setMessage(error.message),
   });
 
-  const projects = useMemo(() => projectsQuery.data ?? [], [projectsQuery.data]);
+  const projects = useMemo(
+    () => projectsQuery.data ?? [],
+    [projectsQuery.data],
+  );
   const now = useNow() || PREVIEW_EPOCH;
   const rows = useMemo(
     () =>
@@ -162,8 +168,7 @@ export default function KeepalivePage() {
           protection: protectionOf(
             {
               enrolled:
-                project.keepaliveEnrolled &&
-                project.keepaliveEnabled !== false,
+                project.keepaliveEnrolled && project.keepaliveEnabled !== false,
               lastSuccessAt: project.keepaliveLastSuccessAt,
               paused: project.lifecycleStatus === "paused",
             },
@@ -190,9 +195,9 @@ export default function KeepalivePage() {
         <div>
           <h1 className="page-title">Keepalive</h1>
           <p className="page-copy">
-            Enrolled Free Plan projects receive a small daily database heartbeat.
-            This reduces pause risk, but Supabase does not guarantee that one
-            heartbeat prevents pausing.
+            Enrolled Free Plan projects receive a small daily database
+            heartbeat. This reduces pause risk, but Supabase does not guarantee
+            that one heartbeat prevents pausing.
           </p>
         </div>
       </header>
@@ -225,7 +230,10 @@ export default function KeepalivePage() {
         </div>
         <div className="summary-card">
           <span className="summary-label">Not enrolled</span>
-          <strong>{rows.length - rows.filter((row) => row.project.keepaliveEnrolled).length}</strong>
+          <strong>
+            {rows.length -
+              rows.filter((row) => row.project.keepaliveEnrolled).length}
+          </strong>
         </div>
       </section>
 
@@ -238,14 +246,22 @@ export default function KeepalivePage() {
         </div>
 
         {projectsQuery.isLoading ? (
-          <div>{Array.from({ length: 4 }, (_, i) => <div key={i} className="skeleton-row" />)}</div>
+          <div>
+            {Array.from({ length: 4 }, (_, i) => (
+              <div key={i} className="skeleton-row" />
+            ))}
+          </div>
         ) : rows.length === 0 ? (
           <div className="empty-state">
             <div className="empty-state-inner">
-              <span className="empty-icon"><ShieldCheck size={20} /></span>
+              <span className="empty-icon">
+                <ShieldCheck size={20} />
+              </span>
               <h2>No projects to protect yet</h2>
               <p>Connect a Supabase account first, then come back to enroll.</p>
-              <Link className="button button-primary" href="/accounts">Add account</Link>
+              <Link className="button button-primary" href="/accounts">
+                Add account
+              </Link>
             </div>
           </div>
         ) : (
@@ -266,21 +282,29 @@ export default function KeepalivePage() {
                     <td>
                       <span className="project-name">
                         <span>{project.name}</span>
-                        <span className="project-ref">{project.projectRef} · {project.accountLabel}</span>
+                        <span className="project-ref">
+                          {project.projectRef} · {project.accountLabel}
+                        </span>
                       </span>
                     </td>
                     <td>
-                      <span className={`protection protection-${protection.state}`}>
+                      <span
+                        className={`protection protection-${protection.state}`}
+                      >
                         <span className="protection-dot" aria-hidden="true" />
                         {project.keepaliveNeedsAttention
                           ? "Needs attention"
-                          : project.keepaliveEnrolled && !project.keepaliveEnabled
+                          : project.keepaliveEnrolled &&
+                              !project.keepaliveEnabled
                             ? "Disabled"
                             : protection.label}
                       </span>
                     </td>
                     <td>
-                      <span className="cell-time" title={absoluteTime(project.keepaliveLastSuccessAt)}>
+                      <span
+                        className="cell-time"
+                        title={absoluteTime(project.keepaliveLastSuccessAt)}
+                      >
                         {project.keepaliveLastSuccessAt
                           ? relativeTime(project.keepaliveLastSuccessAt)
                           : "never"}
@@ -315,7 +339,8 @@ export default function KeepalivePage() {
                           <button
                             className="button button-secondary button-small"
                             disabled={
-                              project.keepaliveEnabled !== true || runNow.isPending
+                              project.keepaliveEnabled !== true ||
+                              runNow.isPending
                             }
                             onClick={() => runNow.mutate(project)}
                           >
@@ -356,18 +381,26 @@ export default function KeepalivePage() {
       <section className="panel" style={{ marginTop: 16 }}>
         <div className="section-header">
           <h2>Recent attempts</h2>
-          <span className="cell-secondary">Last {keepaliveQuery.data?.attempts.length ?? 0}</span>
+          <span className="cell-secondary">
+            Last {keepaliveQuery.data?.attempts.length ?? 0}
+          </span>
         </div>
         <div className="panel-body">
           {keepaliveQuery.data?.attempts.length ? (
             keepaliveQuery.data.attempts.slice(0, 8).map((attempt) => (
               <div className="activity-row" key={attempt.id}>
-                <span className={`status-dot status-${attempt.status === "succeeded" ? "success" : "error"}`} />
+                <span
+                  className={`status-dot status-${attempt.status === "succeeded" ? "success" : "error"}`}
+                />
                 <span>{attempt.projectRef}</span>
                 <span className="cell-secondary">
-                  {attempt.status === "succeeded" ? "Heartbeat current" : attempt.errorCode}
+                  {attempt.status === "succeeded"
+                    ? "Heartbeat current"
+                    : attempt.errorCode}
                 </span>
-                <span className="cell-time">{relativeTime(attempt.completedAt)}</span>
+                <span className="cell-time">
+                  {relativeTime(attempt.completedAt)}
+                </span>
               </div>
             ))
           ) : (
@@ -396,7 +429,10 @@ export default function KeepalivePage() {
               First install the restricted heartbeat function, then let Harbor
               discover and verify a low-privilege project key.
             </Dialog.Description>
-            <div className="dialog-actions" style={{ justifyContent: "space-between" }}>
+            <div
+              className="dialog-actions"
+              style={{ justifyContent: "space-between" }}
+            >
               <CopyButton value={ENROLLMENT_SQL} label="Copy enrollment SQL" />
               {selected ? (
                 <a
@@ -419,7 +455,9 @@ export default function KeepalivePage() {
             />
             {manualMode ? (
               <label className="field">
-                <span className="field-label">Publishable or legacy anon key</span>
+                <span className="field-label">
+                  Publishable or legacy anon key
+                </span>
                 <input
                   className="input"
                   type="password"
@@ -435,7 +473,10 @@ export default function KeepalivePage() {
             ) : null}
             <div className="dialog-actions">
               <Dialog.Close asChild>
-                <button className="button button-secondary" disabled={enroll.isPending}>
+                <button
+                  className="button button-secondary"
+                  disabled={enroll.isPending}
+                >
                   Cancel
                 </button>
               </Dialog.Close>
@@ -465,8 +506,8 @@ export default function KeepalivePage() {
         description={
           <div>
             <p>
-              This removes Harbor&apos;s encrypted credential and queued jobs. It
-              does not delete anything in Supabase.
+              This removes Harbor&apos;s encrypted credential and queued jobs.
+              It does not delete anything in Supabase.
             </p>
             <CopyButton value={CLEANUP_SQL} label="Copy optional cleanup SQL" />
           </div>
