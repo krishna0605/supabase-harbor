@@ -3,33 +3,48 @@
 ## Protected assets
 
 - Supabase Personal Access Tokens
-- Neon database credentials
-- The vault Data Encryption Key
-- Account and project metadata
-- Local activity and settings
+- `HARBOR_MASTER_KEY` and previous rotation key
+- User Data Encryption Keys
+- Neon database and Managed Neon Auth credentials
+- Managed-auth sessions and GitHub provider tokens
+- Account, project, activity, and preference data
+
+## Trust boundaries
+
+The browser is untrusted for secrets. It receives sanitized metadata and a readable,
+session-bound CSRF token, but no PAT, ciphertext, root key, DEK, database URL, or
+provider token.
+
+The hosting runtime is trusted. Anyone who controls the runtime or obtains both the
+database and `HARBOR_MASTER_KEY` can decrypt every Harbor PAT. Envelope encryption
+protects copied database data only when the root key remains separate.
+
+Managed Neon Auth is trusted to validate GitHub sessions. Harbor separately enforces
+the numeric GitHub-ID allowlist; an authenticated but unapproved identity receives no
+tenant, user vault, settings, account, project, or activity rows.
 
 ## Controls
 
-- scrypt-derived KEK with `N=131072`, `r=8`, and `p=1`
-- Random 32-byte DEK wrapped with AES-256-GCM
-- Independent token envelopes with unique 12-byte nonces
-- HMAC-SHA-256 token fingerprints for duplicate detection
-- HttpOnly, SameSite=Strict session cookie and separate CSRF token
-- In-memory-only sessions and DEK, cleared on lock and process shutdown
-- Loopback-only binding plus Host, Origin, CSP, and permission-policy checks
-- Per-response script nonces; development-only eval support is never enabled in a
-  production build
-- Structured log redaction for authorization, tokens, cookies, encryption fields, and
-  request bodies
-- Pooled runtime and direct migration credentials kept in ignored server-only
-  environment files
+- GitHub OAuth only; no repository, organization, or code scopes
+- Default-deny numeric GitHub-ID allowlist
+- Database-backed managed sessions and secure production cookies
+- Signed CSRF cookie bound to the managed session ID
+- Exact Host and Origin validation plus Fetch Metadata checks
+- One random 32-byte DEK per user
+- Versioned AES-256-GCM root-key wrapping
+- Independent PAT envelopes with unique nonces and user/account AAD
+- Tenant-local HMAC-SHA-256 fingerprints
+- Non-null `user_id` ownership and tenant-leading indexes
+- Forced RLS on every Harbor tenant table
+- `harbor_runtime` has DML only, no DDL, superuser, or `BYPASSRLS`
+- Structured redaction for authorization, cookies, tokens, keys, and request bodies
+- Production CSP, frame denial, restrictive browser permissions, and HSTS on HTTPS
 
 ## Explicit non-goals
 
-Harbor cannot defend against malware or an administrator inspecting the running
-process, a compromised browser executing under the same Windows user, physical access
-to an unlocked session, a compromised Neon owner credential, or a malicious
-dependency executing during installation.
+Harbor cannot defend against a compromised deployment operator, hosting account,
+server runtime, dependency, browser session, or user device. Best-effort buffer
+wiping cannot guarantee removal from managed-runtime memory.
 
-The only supported upstream write is project restore. Local account removal and vault
-reset never invoke Supabase deletion endpoints.
+The only Supabase Management API write remains project restore. Deleting an account
+or Harbor tenant never invokes a Supabase deletion endpoint.

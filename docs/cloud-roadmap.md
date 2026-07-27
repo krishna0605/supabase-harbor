@@ -1,38 +1,35 @@
 # Cloud roadmap
 
-The local edition cannot be made safe for public hosting by changing only its host
-binding. Its process-memory vault and single-user session model
-are deliberate local security boundaries.
+Phase 3 completed the identity, tenant, RLS, and hosted secret model. It did not
+authorize a public deployment.
 
-## Proposed hosted architecture
+## Current architecture
 
 ```mermaid
 flowchart LR
-  Browser["Browser"] --> Web["Next.js on Vercel"]
-  Web --> Proxy["Same-origin API proxy"]
-  Proxy --> API["Railway API"]
-  API --> DB["Neon Postgres"]
-  API --> KMS["Managed KMS"]
-  API --> OAuth["Supabase Management OAuth"]
-  Worker["Railway worker"] --> DB
-  Worker --> KMS
-  Worker --> OAuth
+  Browser["Browser"] --> Next["Next.js application"]
+  Next --> Auth["Managed Neon Auth"]
+  Next --> DB["Tenant-isolated Neon Postgres"]
+  Next --> API["Supabase Management API"]
 ```
 
-## Required changes
+## Phase 4
 
-1. Split browser UI, API, worker, and shared domain packages.
-2. Add hosted Harbor authentication with secure database-backed sessions.
-3. Add non-null tenant ownership and row-level isolation to every existing PostgreSQL
-   table.
-4. Replace PAT-first onboarding with Supabase Management OAuth using PKCE and state.
-5. Store encrypted access and refresh tokens using envelope encryption and managed
-   key wrapping.
-6. Add server-side ownership enforcement, database RLS, rate limiting, and audit
-   trails.
-7. Run refresh and restore reconciliation through durable background jobs.
-8. Isolate development, staging, preview, and production environments.
-9. Complete cross-tenant, OAuth, key-rotation, recovery, and abuse testing.
+- Add keepalive schedules and durable job records.
+- Add a Railway worker with bounded execution and leases.
+- Keep token decryption inside one job operation.
+- Add retry, deduplication, reconciliation, and worker audit tests.
 
-Cloud work should be delivered as a separate milestone and threat model. Until that
-work is complete, public deployment is unsupported.
+## Phase 5
+
+- Deploy the Next.js application and API boundary.
+- Deploy and isolate the Railway worker.
+- Configure production secrets without copying them into source or build output.
+- Separate production, test, staging, and preview databases/Auth instances.
+- Add rate limiting, monitoring, alerting, backups, recovery drills, and abuse tests.
+- Verify secure cookies, HSTS, CSP, Host/Origin policy, and cross-tenant behavior on
+  the real public origin.
+- Complete a disposable live Supabase restore smoke test.
+
+Managed KMS and Supabase Management OAuth remain possible post-MVP improvements.
+The Phase 3 server-held root key is an explicit operator trust boundary.

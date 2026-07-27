@@ -5,122 +5,161 @@
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 [![Node](https://img.shields.io/badge/node-24.x-43853d.svg)](.node-version)
 
-A private, local-first dashboard for managing multiple authorized Supabase accounts
-without switching browser profiles.
+A private dashboard for managing multiple authorized Supabase accounts without
+switching browser profiles.
 
-Supabase Harbor validates Personal Access Tokens against the official Management API,
-encrypts them with a local vault, caches organization and project metadata in Neon
-Postgres, and provides one carefully scoped upstream write operation: restoring a
-paused project.
+Harbor validates Personal Access Tokens through Supabase’s official Management API,
+encrypts each token with a per-user key, and caches organization and project metadata
+in Neon Postgres. Paused-project restore is the only upstream write exposed.
 
 > [!IMPORTANT]
-> The published `0.1.x` line is the Windows local-first edition with Neon-backed
-> persistence. It is **not yet** designed for Vercel, Railway, public internet
-> exposure, or multiple Harbor users.
-> The planned cloud architecture still requires hosted authentication, Supabase
-> OAuth, multi-tenant authorization, and managed key storage.
+> Phase 3 is cloud-ready at the identity, tenant, and secret-storage layers, but the
+> project is **not publicly deployed yet**. Production Vercel/Railway setup, abuse
+> controls, deployment secrets, monitoring, and release hardening remain Phase 5.
+> Do not expose a development instance to the internet.
 
 Supabase Harbor is unofficial and is not affiliated with, maintained by, or endorsed
 by Supabase.
 
 ## Highlights
 
-- AES-256-GCM envelope encryption for every Supabase PAT
-- scrypt-derived master-password protection
+- Managed Neon Auth with GitHub OAuth
+- Default-deny admission through a server-side numeric GitHub-ID allowlist
+- Forced PostgreSQL Row-Level Security on every Harbor tenant table
+- Restricted `harbor_runtime` role with no DDL or `BYPASSRLS`
+- One random Data Encryption Key per Harbor user
+- AES-256-GCM token encryption bound to both user and Harbor account
+- Server-held root key with versioned DEK wrapping
 - Multiple independently refreshable Supabase accounts
 - Unified project search, filtering, health, and lifecycle status
 - Cached data remains available when one account fails
-- Paused-project restore with status reconciliation and local audit history
-- Loopback-only server with Host, Origin, CSRF, CSP, and session protections
-- No PATs in browser storage, client bundles, API responses, logs, or plaintext
-  PostgreSQL values
-- One-command Windows launcher after setup
+- Paused-project restore with reconciliation and an audit trail
+- Host, Origin, Fetch Metadata, CSRF, CSP, and secure-session protections
 
 ## Architecture
 
 ```mermaid
 flowchart LR
-    User["Windows user"]
-    Browser["Browser on 127.0.0.1"]
-    Next["Next.js UI and route handlers"]
-    Session["In-memory vault session"]
-    Crypto["scrypt and AES-256-GCM"]
-    Neon["Neon Serverless Postgres"]
+    User["Approved GitHub user"]
+    Browser["Harbor browser UI"]
+    Next["Next.js application"]
+    Auth["Managed Neon Auth"]
+    Guard["Allowlist and tenant guard"]
+    Crypto["Per-user envelope encryption"]
+    RLS["Forced PostgreSQL RLS"]
+    Neon["Neon Postgres"]
     Adapter["Supabase Management API adapter"]
     Supabase["api.supabase.com"]
 
     User --> Browser
     Browser --> Next
-    Next --> Session
-    Session --> Crypto
-    Next --> Neon
-    Next --> Adapter
+    Next --> Auth
+    Next --> Guard
+    Guard --> Crypto
+    Guard --> RLS
+    RLS --> Neon
+    Crypto --> Adapter
     Adapter --> Supabase
 ```
 
-The browser receives sanitized account and project metadata but never a PAT or
-encryption key. Database, cryptography, and Supabase access are server-only.
+The browser receives sanitized identity, account, and project metadata. It never
+receives Supabase PATs, token ciphertext, Neon credentials, the root key, user DEKs,
+Auth cookies, or GitHub provider tokens.
 
 ## Scope
 
 Included:
 
-- Vault setup, unlock, lock, password rotation, and local reset
-- Account connection, rename, enable, disable, refresh, and local removal
-- Organization and project caching
-- Project status normalization and service-health checks
+- GitHub sign-in and default-deny admission
+- Per-user encrypted PAT storage and tenant isolation
+- Account connection, rename, enable, disable, refresh, and Harbor-only removal
+- Organization/project caching and service-health checks
 - Manual, initial, and visible-tab refresh
-- Paused-project restoration
+- Paused-project restoration and reconciliation
 - Refresh and restore activity history
+- Current-user Harbor data deletion
 
-Deliberately excluded from `0.1.x`:
+Not included yet:
 
-- Synthetic keepalive traffic
-- SQL execution or database contents
+- Synthetic keepalive traffic or background jobs (Phase 4)
+- Public Vercel/Railway deployment (Phase 5)
+- Supabase Management OAuth
+- SQL execution, database contents, logs, billing, or Supabase Auth users
 - Project creation, pause, restart, transfer, or deletion
-- Supabase API keys, Auth users, Storage objects, billing, and logs
-- LAN or mobile access
-- Hosted multi-user operation
+
+## Phase status
+
+| Phase                                               | Status                                                     |
+| --------------------------------------------------- | ---------------------------------------------------------- |
+| 0 — Design foundation                               | Complete                                                   |
+| 1 — Tide-table UI                                   | Complete                                                   |
+| 2 — Neon Postgres                                   | Complete                                                   |
+| 3 — Hosted auth, tenant isolation, and secret model | Implemented locally; production migration pending approval |
+| 4 — Keepalive engine and Railway worker             | Pending                                                    |
+| 5 — Vercel/Railway deployment and hardening         | Pending                                                    |
 
 ## Requirements
 
-- Windows 10 or 11
+- Windows 10/11 for the provided scripts
 - Git
 - Node.js 24.x LTS
-- PowerShell 5.1 or newer
-- A current Chromium, Edge, or Firefox browser
-- A Neon project and database
+- PowerShell 5.1+
+- A Neon project with Managed Neon Auth enabled
+- A GitHub OAuth application configured in Neon Auth
 
-## Install
+## Configure
 
 ```powershell
 git clone https://github.com/krishna0605/supabase-harbor.git
 Set-Location supabase-harbor
 Copy-Item .env.example .env.local
-# Replace the placeholder DATABASE_URL values in .env.local.
-powershell -ExecutionPolicy Bypass -File .\scripts\setup.ps1
 ```
 
-The setup script:
+Fill `.env.local` with server-only values:
 
-1. Verifies Windows, Git, and Node.js.
-2. Installs the exact dependency lockfile.
-3. Runs linting, type checks, tests, and a production build.
-4. Applies committed Drizzle migrations through the direct Neon connection.
-5. Confirms Neon readiness without overwriting an existing vault.
+```text
+DATABASE_URL=<pooled Neon runtime connection>
+DATABASE_URL_UNPOOLED=<direct Neon migration connection>
+NEON_AUTH_BASE_URL=<branch-specific Neon Auth URL>
+NEON_AUTH_COOKIE_SECRET=<random value, at least 32 characters>
+HARBOR_MASTER_KEY=<base64-encoded random 32-byte key>
+HARBOR_MASTER_KEY_VERSION=1
+HARBOR_ALLOWED_GITHUB_IDS=<comma-separated numeric GitHub IDs>
+HARBOR_ORIGIN=http://127.0.0.1:47832
+```
 
-## Run
+Generate a root key without printing it into source files:
 
 ```powershell
+[Convert]::ToBase64String([Security.Cryptography.RandomNumberGenerator]::GetBytes(32))
+```
+
+Store that output only in the deployment secret manager or ignored `.env.local`.
+Never commit connection strings, cookie secrets, root keys, PATs, or `.env.local`.
+
+Configure GitHub as the only provider in Neon Auth. Email/password, anonymous login,
+magic links, and open registration are outside Harbor’s supported configuration.
+The OAuth callback URL must match the URL shown by Neon Auth.
+
+## Install and run locally
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\setup.ps1
 .\harbor.ps1
 ```
 
-Harbor opens at `http://127.0.0.1:47832`. Stop it with `Ctrl+C`.
+Harbor opens at `http://127.0.0.1:47832`. The local launcher remains useful for
+development and private testing. Stop it with `Ctrl+C`.
+
+The application and migration connections currently use the Neon owner credential
+as the bootstrap credential, then transactionally switch application queries to the
+restricted `harbor_runtime` role. Production deployment credentials are finalized in
+Phase 5.
 
 ## Connect Supabase
 
-Create a Personal Access Token from your Supabase account settings. When
-fine-grained permissions are available, grant only the capabilities Harbor needs:
+Create a Personal Access Token in Supabase account settings. Prefer the narrowest
+available permissions:
 
 - Profile access
 - `organizations_read`
@@ -129,44 +168,25 @@ fine-grained permissions are available, grant only the capabilities Harbor needs
 - `project_admin_write`
 
 Harbor validates profile, organization, and project access before storing an
-encrypted token. The PAT is never displayed again.
-
-Use a disposable account or project for the first live smoke test. Never use
-production credentials in fixtures, CI, issues, or screenshots.
-
-## Data locations
-
-```text
-%LOCALAPPDATA%\SupabaseHarbor\
-└─ logs\
-   └─ harbor.log
-```
-
-Vault envelopes and cached metadata are stored in Neon Postgres. Connection strings
-are secrets and belong only in ignored environment files:
-
-```text
-DATABASE_URL=<pooled Neon connection>
-DATABASE_URL_UNPOOLED=<direct Neon connection>
-HARBOR_PORT=47832
-HARBOR_LOG_LEVEL=info
-```
-
-The host address is intentionally not configurable. Supabase PATs and master
-passwords are never accepted through environment variables.
+encrypted token. The PAT is never displayed again. Use disposable credentials for
+the first smoke test and never place real credentials in CI, fixtures, issues, or
+screenshots.
 
 ## Security model
 
-Harbor protects stored token envelopes by encrypting PATs at rest. It cannot protect
-against malware, administrator-level access, process-memory inspection, or a
-compromised browser running under the same Windows account.
+Each approved user receives a random DEK. That DEK is wrapped with the server-held
+`HARBOR_MASTER_KEY`; each PAT is encrypted independently with a unique nonce and
+authenticated user/account context.
 
-The local edition must not be exposed through a tunnel, reverse proxy, container
-port, LAN address, or public hosting platform. See the
-[threat model](docs/threat-model.md) and [security policy](SECURITY.md).
+This protects a copied database from someone who does not also possess the root key.
+It does **not** protect against a compromised hosting account or runtime. An operator
+or attacker with both database access and `HARBOR_MASTER_KEY` can decrypt all Harbor
+PATs. See the [threat model](docs/threat-model.md) and [security policy](SECURITY.md).
 
-To report a vulnerability, use GitHub's private vulnerability-reporting flow. Do not
-open a public issue containing exploit details or credentials.
+Root-key rotation rewraps user DEKs without re-encrypting every PAT. Configure the new
+current key and the prior key/version together, back up Neon, then run
+`npm run keys:rotate`. Remove the previous key only after every user vault reports the
+new version and a disposable-token smoke test succeeds.
 
 ## Development
 
@@ -182,35 +202,24 @@ npm run build
 npm run verify
 ```
 
-The development-only visual route is `/dashboard?preview=1`. Its representative data
-is never returned by a production API.
+Integration resets require all three guards: `NODE_ENV=test`,
+`ALLOW_DATABASE_RESET=1`, and a database named `harbor_test`.
 
 ## Documentation
 
-- [Product context](PRODUCT.md)
-- [Design direction](DESIGN.md)
 - [Architecture](docs/architecture.md)
-- [Local hosting](docs/local-hosting.md)
+- [Hosted authentication](docs/hosted-auth.md)
+- [Local development](docs/local-hosting.md)
 - [Neon Postgres](docs/neon-postgres.md)
 - [Threat model](docs/threat-model.md)
+- [Cloud roadmap](docs/cloud-roadmap.md)
 - [Supabase API compatibility](docs/supabase-api-compatibility.md)
-
-## Roadmap
-
-- Live Supabase smoke-test fixtures and compatibility reporting
-- Encrypted vault export and import
-- Optional desktop packaging
-- Cloud edition with hosted authentication and tenant isolation
-- Supabase Management OAuth with PKCE
-- Railway API/worker and Vercel frontend deployment
-
-Cloud support will not reuse the local master-password security boundary.
-See [the cloud roadmap](docs/cloud-roadmap.md).
 
 ## Contributing
 
-Contributions are welcome. Read [CONTRIBUTING.md](CONTRIBUTING.md) and the
-[Code of Conduct](CODE_OF_CONDUCT.md) before opening a pull request.
+Contributions are welcome. Read [CONTRIBUTING.md](CONTRIBUTING.md), the
+[Code of Conduct](CODE_OF_CONDUCT.md), and [Security Policy](SECURITY.md) before
+opening a pull request.
 
 ## License
 

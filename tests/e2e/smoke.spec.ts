@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test";
 
-test("serves the local shell with enforced security headers", async ({
+test("serves the hosted sign-in shell with enforced security headers", async ({
   page,
 }) => {
   const consoleErrors: string[] = [];
@@ -9,11 +9,16 @@ test("serves the local shell with enforced security headers", async ({
   });
   page.on("pageerror", (error) => consoleErrors.push(error.message));
 
-  const response = await page.goto("/");
+  const response = await page.goto("/login");
   expect(response).not.toBeNull();
   expect(response?.status()).toBeLessThan(400);
-  await expect(page.locator("h1").first()).toBeVisible();
-  await expect(page).toHaveURL(/\/(setup|unlock|dashboard)$/);
+  await expect(
+    page.getByRole("heading", { name: "Sign in to your Harbor" }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "Continue with GitHub" }),
+  ).toBeVisible();
+  await expect(page).toHaveURL(/\/login$/);
 
   const csp = response?.headers()["content-security-policy"] ?? "";
   expect(csp).toMatch(/script-src 'self' 'nonce-[^']+'/);

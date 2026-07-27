@@ -1,8 +1,8 @@
 # Neon Postgres
 
-Phase 2 stores Harbor vault envelopes, cached metadata, settings, and activity in
-Neon Serverless Postgres. The application remains loopback-only and single-user until
-the hosted authentication phase is complete.
+Neon Serverless Postgres stores Harbor’s tenant vault envelopes, cached metadata,
+settings, and activity. Managed Neon Auth stores identities and sessions in its
+branch-local `neon_auth` schema.
 
 ## Connections
 
@@ -36,9 +36,10 @@ then promote the exact reviewed migration. Apply committed migrations locally wi
 npm run db:migrate
 ```
 
-The baseline migration creates the eight Harbor tables and seeds the default refresh
-and idle-timeout settings. Drizzle records applied files in its own migration table,
-so rerunning the command is safe.
+The Phase 2 baseline creates eight Harbor tables. Phase 3 adds tenant ownership,
+`user_vaults`, composite ownership keys, the restricted runtime role, forced RLS,
+the GitHub identity resolver, and removes the obsolete local vault table. Default
+settings are seeded when an approved user first enters Harbor.
 
 ## Isolated tests
 
@@ -65,9 +66,15 @@ npm run test:integration
 ## Recovery
 
 Do not edit production tables manually. Use a Neon branch or point-in-time restore to
-inspect and recover a previous database state. Resetting the Harbor vault deletes
-Harbor rows only and never invokes a Supabase project deletion endpoint.
+inspect and recover a previous database state. Deleting a Harbor tenant removes only
+that user’s Harbor rows and never invokes a Supabase project deletion endpoint.
+
+Managed Neon Auth must be provisioned separately for each branch that performs live
+sign-in. The isolated `harbor_test` database intentionally uses a non-authenticating
+identity stub so destructive persistence tests cannot create live Auth sessions.
 
 ## Applied production migrations
 
 - [2026-07-27 production baseline](migrations/2026-07-27-neon-baseline.md)
+
+The Phase 3 production migration remains pending explicit approval.

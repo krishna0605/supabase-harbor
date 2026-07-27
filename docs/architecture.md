@@ -2,35 +2,49 @@
 
 ```mermaid
 flowchart LR
-  U["Windows user"] --> B["Browser on 127.0.0.1"]
+  U["Approved GitHub user"] --> B["Harbor browser UI"]
   B --> N["Next.js UI and route handlers"]
-  N --> S["In-memory vault session"]
-  S --> C["AES-256-GCM and scrypt"]
-  N --> D["Neon Serverless Postgres"]
-  N --> A["Typed Management API adapter"]
-  A --> SB["api.supabase.com"]
-  N --> L["Redacted local log"]
+  N --> A["Managed Neon Auth"]
+  N --> G["Harbor tenant guard"]
+  G --> C["Per-user AES-256-GCM envelopes"]
+  G --> R["Restricted runtime role and forced RLS"]
+  R --> D["Neon Postgres"]
+  C --> M["Typed Management API adapter"]
+  M --> SB["api.supabase.com"]
+  N --> L["Redacted server log"]
 ```
 
-Browser code receives sanitized account and project metadata but never a PAT, master
-password, KEK, or DEK. Route handlers are the only layer allowed to access Neon and
-the Supabase adapter. Business behavior lives in `src/features`; HTTP and persistence
-details remain under `src/server`.
+Browser code receives sanitized identity, account, project, health, and activity
+metadata. Database credentials, Supabase PATs, PAT ciphertext, root keys, user DEKs,
+managed-auth cookies, and GitHub provider tokens remain server-side.
 
-The server renders cached data immediately and refreshes enabled accounts with a
-maximum concurrency of three. Every account cache updates transactionally. A failed
-refresh preserves prior project rows and records an error code instead of deleting
-the cache.
+## Request boundary
 
-Restore requests are never blindly retried. An accepted restore creates a local action
-and sets the cached project to `RESTORING`; the reconcile route reads the project until
-it becomes active or fails.
+1. Managed Neon Auth validates its database-backed session.
+2. Harbor resolves the linked numeric GitHub provider ID.
+3. The server-side allowlist admits or rejects the identity.
+4. Only an approved user receives a tenant context.
+5. Repository batches switch to `harbor_runtime`, set `harbor.user_id`, and execute
+   explicit tenant predicates under forced RLS.
+6. Secret operations unwrap the user DEK for one operation and wipe temporary key
+   buffers best-effort.
+
+Resource lookups include both the tenant and resource identifier. Cross-tenant IDs
+return `404` to avoid confirming that another user’s resource exists.
+
+## Persistence
 
 Neon HTTP is used for request-scoped queries and atomic batches. Runtime traffic uses
-the pooled connection string; schema migrations use a direct connection. PostgreSQL
-stores encrypted token envelopes and cached metadata, while the decrypted vault key
-and authenticated sessions remain in the local Node.js process.
+the pooled connection; migrations use a direct connection. Every Harbor-owned table
+is tenant-owned and protected by forced PostgreSQL RLS.
 
-Phase 2 remains a single-user local runtime. It must not be deployed publicly until
-hosted authentication, per-user ownership, and a server-held encryption root are
-implemented.
+Account refreshes are bounded to three concurrent accounts. A failed refresh
+preserves prior cache rows. Restore POSTs are never blindly retried; accepted actions
+are reconciled by subsequent reads.
+
+## Deployment state
+
+Phase 3 supplies the hosted identity and data-security architecture but is not a
+public release. The Railway worker, public Vercel/Railway topology, production secret
+injection, monitoring, rate controls, and deployment verification remain later
+phases.

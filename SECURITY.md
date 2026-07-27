@@ -1,7 +1,6 @@
 # Security Policy
 
-Supabase Harbor handles credentials with significant account privileges. Security
-reports are taken seriously.
+Supabase Harbor handles credentials with significant account privileges.
 
 ## Supported versions
 
@@ -12,35 +11,36 @@ reports are taken seriously.
 
 ## Reporting a vulnerability
 
-Use GitHub's private vulnerability-reporting feature for this repository:
+Use GitHub’s private vulnerability-reporting feature:
 
-1. Open the repository's **Security** tab.
+1. Open the repository’s **Security** tab.
 2. Select **Report a vulnerability**.
 3. Include the affected version, reproduction steps, impact, and a minimal proof of
    concept.
 
-Do not open a public issue for an unpatched vulnerability. Never include a real
-Supabase PAT, master password, Neon connection string, database export, encryption
-key, session cookie, or private customer data in a report.
-
-You should receive an acknowledgement within seven days. We will coordinate
-validation, remediation, disclosure timing, and credit through the private report.
+Do not open a public issue for an unpatched vulnerability. Never include a real PAT,
+database URL/export, root key, DEK, cookie secret, session cookie, provider token, or
+private user data.
 
 ## Security boundary
 
-The `0.1.x` line is a local Windows application bound to `127.0.0.1`. It is not
-supported behind a public reverse proxy, tunnel, container port, LAN listener, or
-cloud hosting platform.
+Harbor authenticates through GitHub and Managed Neon Auth, then applies a default-deny
+numeric GitHub-ID allowlist. All Harbor data carries non-null tenant ownership and is
+protected by explicit ownership predicates plus forced PostgreSQL RLS.
 
-Envelope encryption protects PATs stored in Neon. It does not defend
-against malware, administrator-level access, process-memory inspection, or a
-compromised browser running under the same Windows account.
+Each user DEK is wrapped with a server-held root key. Encryption protects a copied
+database from someone who lacks that key. It does not protect against a compromised
+hosting operator or runtime. Anyone with both database access and
+`HARBOR_MASTER_KEY` can decrypt all Harbor PATs.
 
-## Handling suspected credential exposure
+Phase 3 is cloud-ready but not a public deployment. Public hosting remains unsupported
+until Phase 5’s deployment, rate-control, monitoring, recovery, and live security
+gates are complete.
 
-If a real token may have been exposed:
+## Suspected credential exposure
 
-1. Revoke the PAT in Supabase immediately.
-2. Lock Harbor and stop the process.
-3. Preserve relevant redacted diagnostics.
-4. Rotate credentials and reconnect with a newly scoped token.
+1. Revoke the affected PAT in Supabase immediately.
+2. Rotate the deployment root/cookie/database credentials as applicable.
+3. Revoke managed-auth sessions.
+4. Preserve only redacted diagnostics.
+5. Reconnect with a newly scoped disposable token before resuming use.

@@ -2,19 +2,19 @@
 
 ## Product
 
-Supabase Harbor is an unofficial, private, local-first dashboard for one person who
-manages several authorized Supabase accounts. It replaces browser-profile hopping
-with one encrypted view of accounts, organizations, projects, health, and restore
-activity.
+Supabase Harbor is an unofficial private dashboard for approved users who manage
+several authorized Supabase accounts. It replaces browser-profile hopping with one
+encrypted view of accounts, organizations, projects, health, and restore activity.
 
 ## Users and operating context
 
-- Primary user: a technical Windows 10/11 user managing their own Supabase accounts.
-- Runtime: one local Next.js process bound only to `127.0.0.1`.
+- Primary users: explicitly allowlisted GitHub identities managing only their own
+  authorized Supabase accounts.
+- Runtime: Next.js with Managed Neon Auth and Neon Postgres; public deployment is a
+  later release gate.
 - Daily setting: a desktop browser, often during a quick project-status check.
-- Data posture: cached metadata and encrypted Personal Access Token envelopes in Neon
-  Postgres; tokens are only decrypted in local server memory while the vault is
-  unlocked.
+- Data posture: tenant-isolated metadata and encrypted PAT envelopes in Neon;
+  tokens are decrypted only during one server operation.
 
 ## Core jobs
 
@@ -26,10 +26,10 @@ activity.
 
 ## Positioning
 
-Harbor is a focused local operations console, not a replacement for the Supabase
+Harbor is a focused operations console, not a replacement for the Supabase
 dashboard. It exposes one upstream write—restore—and deliberately excludes SQL,
 billing changes, logs, key management, synthetic keepalive traffic, project deletion,
-and remote access.
+and broad Supabase administration.
 
 ## Brand and experience commitments
 
@@ -37,7 +37,8 @@ and remote access.
 - Dense enough for fifty projects, but never visually noisy.
 - Status is communicated by text and icons in addition to color.
 - Cached information is never presented as live after a failed refresh.
-- Local-only actions explicitly state that they do not alter Supabase resources.
+- Harbor-only deletion actions explicitly state that they do not alter Supabase
+  resources.
 
 ## Success
 
