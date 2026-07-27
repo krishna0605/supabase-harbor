@@ -1,11 +1,20 @@
-import { NextResponse, type NextRequest } from "next/server";
-import { canonicalOrigin, harborPort } from "@/server/config";
+import { NextRequest, NextResponse } from "next/server";
+import { canonicalOrigin } from "@/server/config";
+import { auth } from "@/server/auth/neon-auth";
 
-const allowedHosts = new Set([`127.0.0.1:${harborPort}`]);
+const allowedHost = new URL(canonicalOrigin).host;
+const requireAuthentication = auth.middleware({ loginUrl: "/login" });
+const protectedPages = [
+  "/accounts",
+  "/activity",
+  "/dashboard",
+  "/keepalive",
+  "/settings",
+];
 
-export function proxy(request: NextRequest) {
+export async function proxy(request: NextRequest) {
   const host = request.headers.get("host") ?? "";
-  if (!allowedHosts.has(host)) {
+  if (host !== allowedHost) {
     return new NextResponse("Invalid host", { status: 421 });
   }
 
@@ -19,7 +28,7 @@ export function proxy(request: NextRequest) {
   const nonce = crypto.randomUUID().replaceAll("-", "");
   const contentSecurityPolicy = [
     "default-src 'self'",
-    "img-src 'self' data: https://supabase.com",
+    "img-src 'self' data: https://supabase.com https://avatars.githubusercontent.com",
     "style-src 'self' 'unsafe-inline'",
     `script-src 'self' 'nonce-${nonce}'${
       process.env.NODE_ENV === "development" ? " 'unsafe-eval'" : ""
@@ -32,9 +41,14 @@ export function proxy(request: NextRequest) {
   const requestHeaders = new Headers(request.headers);
   requestHeaders.set("Content-Security-Policy", contentSecurityPolicy);
   requestHeaders.set("x-nonce", nonce);
-  const response = NextResponse.next({
-    request: { headers: requestHeaders },
-  });
+  const securedRequest = new NextRequest(request, { headers: requestHeaders });
+  const response = protectedPages.some(
+    (path) =>
+      request.nextUrl.pathname === path ||
+      request.nextUrl.pathname.startsWith(`${path}/`),
+  )
+    ? await requireAuthentication(securedRequest)
+    : NextResponse.next({ request: { headers: requestHeaders } });
   response.headers.set("X-Content-Type-Options", "nosniff");
   response.headers.set("X-Frame-Options", "DENY");
   response.headers.set("Referrer-Policy", "no-referrer");
@@ -43,6 +57,15 @@ export function proxy(request: NextRequest) {
     "camera=(), microphone=(), geolocation=(), payment=(), usb=()",
   );
   response.headers.set("Content-Security-Policy", contentSecurityPolicy);
+  if (
+    process.env.NODE_ENV === "production" &&
+    canonicalOrigin.startsWith("https://")
+  ) {
+    response.headers.set(
+      "Strict-Transport-Security",
+      "max-age=31536000; includeSubDomains",
+    );
+  }
   return response;
 }
 

@@ -1,9 +1,10 @@
+import { randomUUID } from "node:crypto";
 import { HarborError } from "@/shared/errors/harbor-error";
 import {
-  decryptToken,
-  encryptToken,
-  fingerprintToken,
-} from "@/server/crypto/vault-crypto";
+  decryptHostedToken,
+  encryptHostedToken,
+  fingerprintHostedToken,
+} from "@/server/crypto/hosted-crypto";
 import {
   deleteAccount,
   getAccountSecret,
@@ -13,6 +14,7 @@ import {
 } from "@/server/database/repository";
 import { supabaseManagement } from "@/server/supabase/client";
 import { normalizeProjectStatus } from "@/server/supabase/status";
+import type { TenantContext } from "@/shared/types/auth";
 
 function cleanLabel(label: string) {
   const value = label.trim();
@@ -27,6 +29,7 @@ function cleanLabel(label: string) {
 }
 
 export async function connectAccount(
+  context: TenantContext,
   input: { label: string; token: string },
   dek: Buffer,
 ) {
@@ -63,7 +66,10 @@ export async function connectAccount(
       createdAt: project.created_at ?? new Date().toISOString(),
     };
   });
-  const accountId = await insertAccountWithCache({
+  const accountId = randomUUID();
+  await insertAccountWithCache({
+    context,
+    accountId,
     label,
     userId: profile.id,
     primaryEmail:
@@ -71,8 +77,13 @@ export async function connectAccount(
       profile.email ??
       profile.username ??
       "Unknown account",
-    encryptedToken: encryptToken(token, dek),
-    fingerprint: fingerprintToken(token, dek),
+    encryptedToken: encryptHostedToken(
+      token,
+      context.userId,
+      accountId,
+      dek,
+    ),
+    fingerprint: fingerprintHostedToken(token, dek),
     organizations: organizations.map((org) => ({
       id: org.id,
       slug: org.slug ?? org.id,
@@ -81,10 +92,13 @@ export async function connectAccount(
     })),
     projects: projectCache,
   });
-  return (await listAccounts()).find((account) => account.id === accountId);
+  return (await listAccounts(context)).find(
+    (account) => account.id === accountId,
+  );
 }
 
 export async function patchAccount(
+  context: TenantContext,
   accountId: string,
   patch: { label?: string; enabled?: boolean; token?: string },
   dek: Buffer,
@@ -92,23 +106,29 @@ export async function patchAccount(
   if (patch.token) {
     const token = patch.token.trim();
     await supabaseManagement.profile(token);
-    await updateAccount(accountId, {
+    await updateAccount(context, accountId, {
       label: patch.label ? cleanLabel(patch.label) : undefined,
       enabled: patch.enabled,
-      token: encryptToken(token, dek),
-      fingerprint: fingerprintToken(token, dek),
+      token: encryptHostedToken(token, context.userId, accountId, dek),
+      fingerprint: fingerprintHostedToken(token, dek),
     });
   } else {
-    await updateAccount(accountId, {
+    await updateAccount(context, accountId, {
       label: patch.label ? cleanLabel(patch.label) : undefined,
       enabled: patch.enabled,
     });
   }
-  return (await listAccounts()).find((account) => account.id === accountId);
+  return (await listAccounts(context)).find(
+    (account) => account.id === accountId,
+  );
 }
 
-export async function revealAccountToken(accountId: string, dek: Buffer) {
-  const account = await getAccountSecret(accountId);
+export async function revealAccountToken(
+  context: TenantContext,
+  accountId: string,
+  dek: Buffer,
+) {
+  const account = await getAccountSecret(context, accountId);
   if (!account.enabled) {
     throw new HarborError(
       "ACCOUNT_DISABLED",
@@ -116,10 +136,18 @@ export async function revealAccountToken(accountId: string, dek: Buffer) {
       409,
     );
   }
-  return decryptToken(account.token, dek);
+  return decryptHostedToken(
+    account.token,
+    context.userId,
+    accountId,
+    dek,
+  );
 }
 
-export async function removeAccount(accountId: string) {
-  await getAccountSecret(accountId);
-  await deleteAccount(accountId);
+export async function removeAccount(
+  context: TenantContext,
+  accountId: string,
+) {
+  await getAccountSecret(context, accountId);
+  await deleteAccount(context, accountId);
 }

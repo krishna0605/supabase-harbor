@@ -2,21 +2,28 @@ import { z } from "zod";
 import { restoreProject } from "@/features/projects/project-service";
 import { ok } from "@/server/http/responses";
 import { readJson, route } from "@/server/http/route-helpers";
-import { requireSession } from "@/server/session/session-store";
+import {
+  requireHarborUser,
+  withUserDek,
+} from "@/server/auth/harbor-auth";
 
 type Context = { params: Promise<{ ref: string }> };
 
 export async function POST(request: Request, context: Context) {
   return route(async (currentRequest) => {
-    const { dek } = await requireSession(currentRequest, {
+    const { context: tenant } = await requireHarborUser(currentRequest, {
       csrf: true,
-      touch: true,
     });
     const { accountId } = await readJson(
       currentRequest,
       z.object({ accountId: z.string().uuid() }),
     );
     const { ref } = await context.params;
-    return ok(await restoreProject(accountId, ref, dek), { status: 202 });
+    return ok(
+      await withUserDek(tenant, (dek) =>
+        restoreProject(tenant, accountId, ref, dek),
+      ),
+      { status: 202 },
+    );
   })(request);
 }

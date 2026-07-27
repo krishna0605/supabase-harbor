@@ -5,15 +5,17 @@ import {
 } from "@/features/accounts/account-service";
 import { ok } from "@/server/http/responses";
 import { readJson, route } from "@/server/http/route-helpers";
-import { requireSession } from "@/server/session/session-store";
+import {
+  requireHarborUser,
+  withUserDek,
+} from "@/server/auth/harbor-auth";
 
 type Context = { params: Promise<{ id: string }> };
 
 export async function PATCH(request: Request, context: Context) {
   return route(async (currentRequest) => {
-    const { dek } = await requireSession(currentRequest, {
+    const { context: tenant } = await requireHarborUser(currentRequest, {
       csrf: true,
-      touch: true,
     });
     const { id } = await context.params;
     const patch = await readJson(
@@ -24,15 +26,21 @@ export async function PATCH(request: Request, context: Context) {
         token: z.string().optional(),
       }),
     );
-    return ok(await patchAccount(id, patch, dek));
+    return ok(
+      await withUserDek(tenant, (dek) =>
+        patchAccount(tenant, id, patch, dek),
+      ),
+    );
   })(request);
 }
 
 export async function DELETE(request: Request, context: Context) {
   return route(async (currentRequest) => {
-    await requireSession(currentRequest, { csrf: true, touch: true });
+    const { context: tenant } = await requireHarborUser(currentRequest, {
+      csrf: true,
+    });
     const { id } = await context.params;
-    await removeAccount(id);
+    await removeAccount(tenant, id);
     return ok({ removed: true });
   })(request);
 }

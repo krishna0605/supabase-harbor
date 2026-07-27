@@ -8,6 +8,7 @@ import {
   primaryKey,
   text,
   timestamp,
+  uniqueIndex,
 } from "drizzle-orm/pg-core";
 
 const bytea = customType<{ data: Buffer; driverData: string | Uint8Array }>({
@@ -26,14 +27,12 @@ const bytea = customType<{ data: Buffer; driverData: string | Uint8Array }>({
 const utcTimestamp = (name: string) =>
   timestamp(name, { withTimezone: true, mode: "string" });
 
-export const vaultMetadata = pgTable("vault_metadata", {
-  id: integer("id").primaryKey(),
-  formatVersion: integer("format_version").notNull(),
-  kdfSalt: bytea("kdf_salt").notNull(),
-  kdfParameters: text("kdf_parameters").notNull(),
+export const userVaults = pgTable("user_vaults", {
+  userId: text("user_id").primaryKey(),
   wrappedDek: bytea("wrapped_dek").notNull(),
   wrappedDekNonce: bytea("wrapped_dek_nonce").notNull(),
   wrappedDekTag: bytea("wrapped_dek_tag").notNull(),
+  rootKeyVersion: integer("root_key_version").notNull(),
   createdAt: utcTimestamp("created_at").notNull().defaultNow(),
   updatedAt: utcTimestamp("updated_at").notNull().defaultNow(),
 });
@@ -41,44 +40,63 @@ export const vaultMetadata = pgTable("vault_metadata", {
 export const accounts = pgTable(
   "accounts",
   {
-    id: text("id").primaryKey(),
+    userId: text("user_id").notNull(),
+    id: text("id").notNull(),
     label: text("label").notNull(),
     supabaseUserId: text("supabase_user_id").notNull(),
     primaryEmail: text("primary_email").notNull(),
     tokenCiphertext: bytea("token_ciphertext").notNull(),
     tokenNonce: bytea("token_nonce").notNull(),
     tokenTag: bytea("token_tag").notNull(),
-    tokenFingerprint: text("token_fingerprint").notNull().unique(),
+    tokenFingerprint: text("token_fingerprint").notNull(),
     enabled: boolean("enabled").notNull().default(true),
     lastSuccessfulSyncAt: utcTimestamp("last_successful_sync_at"),
     lastErrorCode: text("last_error_code"),
     createdAt: utcTimestamp("created_at").notNull().defaultNow(),
     updatedAt: utcTimestamp("updated_at").notNull().defaultNow(),
   },
-  (table) => [index("accounts_enabled_label_idx").on(table.enabled, table.label)],
+  (table) => [
+    primaryKey({ columns: [table.userId, table.id] }),
+    uniqueIndex("accounts_user_token_fingerprint_unique").on(
+      table.userId,
+      table.tokenFingerprint,
+    ),
+    index("accounts_user_enabled_label_idx").on(
+      table.userId,
+      table.enabled,
+      table.label,
+    ),
+  ],
 );
 
 export const organizations = pgTable(
   "organizations",
   {
-    accountId: text("account_id")
-      .notNull()
-      .references(() => accounts.id, { onDelete: "cascade" }),
+    userId: text("user_id").notNull(),
+    accountId: text("account_id").notNull(),
     supabaseOrgId: text("supabase_org_id").notNull(),
     slug: text("slug").notNull(),
     name: text("name").notNull(),
     plan: text("plan").notNull().default("unknown"),
     lastSeenAt: utcTimestamp("last_seen_at").notNull().defaultNow(),
   },
-  (table) => [primaryKey({ columns: [table.accountId, table.supabaseOrgId] })],
+  (table) => [
+    primaryKey({
+      columns: [table.userId, table.accountId, table.supabaseOrgId],
+    }),
+    foreignKey({
+      columns: [table.userId, table.accountId],
+      foreignColumns: [accounts.userId, accounts.id],
+      name: "organizations_account_fk",
+    }).onDelete("cascade"),
+  ],
 );
 
 export const projects = pgTable(
   "projects",
   {
-    accountId: text("account_id")
-      .notNull()
-      .references(() => accounts.id, { onDelete: "cascade" }),
+    userId: text("user_id").notNull(),
+    accountId: text("account_id").notNull(),
     projectRef: text("project_ref").notNull(),
     supabaseOrgId: text("supabase_org_id").notNull(),
     organizationSlug: text("organization_slug").notNull().default(""),
@@ -93,8 +111,16 @@ export const projects = pgTable(
     removedAt: utcTimestamp("removed_at"),
   },
   (table) => [
-    primaryKey({ columns: [table.accountId, table.projectRef] }),
-    index("projects_account_removed_name_idx").on(
+    primaryKey({
+      columns: [table.userId, table.accountId, table.projectRef],
+    }),
+    foreignKey({
+      columns: [table.userId, table.accountId],
+      foreignColumns: [accounts.userId, accounts.id],
+      name: "projects_account_fk",
+    }).onDelete("cascade"),
+    index("projects_user_account_removed_name_idx").on(
+      table.userId,
       table.accountId,
       table.removedAt,
       table.name,
@@ -105,6 +131,7 @@ export const projects = pgTable(
 export const serviceHealth = pgTable(
   "service_health",
   {
+    userId: text("user_id").notNull(),
     accountId: text("account_id").notNull(),
     projectRef: text("project_ref").notNull(),
     serviceName: text("service_name").notNull(),
@@ -116,11 +143,20 @@ export const serviceHealth = pgTable(
   },
   (table) => [
     primaryKey({
-      columns: [table.accountId, table.projectRef, table.serviceName],
+      columns: [
+        table.userId,
+        table.accountId,
+        table.projectRef,
+        table.serviceName,
+      ],
     }),
     foreignKey({
-      columns: [table.accountId, table.projectRef],
-      foreignColumns: [projects.accountId, projects.projectRef],
+      columns: [table.userId, table.accountId, table.projectRef],
+      foreignColumns: [
+        projects.userId,
+        projects.accountId,
+        projects.projectRef,
+      ],
       name: "service_health_project_fk",
     }).onDelete("cascade"),
   ],
@@ -129,10 +165,9 @@ export const serviceHealth = pgTable(
 export const syncRuns = pgTable(
   "sync_runs",
   {
-    id: text("id").primaryKey(),
-    accountId: text("account_id")
-      .notNull()
-      .references(() => accounts.id, { onDelete: "cascade" }),
+    userId: text("user_id").notNull(),
+    id: text("id").notNull(),
+    accountId: text("account_id").notNull(),
     trigger: text("trigger").notNull(),
     status: text("status").notNull(),
     projectCount: integer("project_count").notNull().default(0),
@@ -141,7 +176,14 @@ export const syncRuns = pgTable(
     completedAt: utcTimestamp("completed_at"),
   },
   (table) => [
-    index("sync_runs_account_started_idx").on(
+    primaryKey({ columns: [table.userId, table.id] }),
+    foreignKey({
+      columns: [table.userId, table.accountId],
+      foreignColumns: [accounts.userId, accounts.id],
+      name: "sync_runs_account_fk",
+    }).onDelete("cascade"),
+    index("sync_runs_user_account_started_idx").on(
+      table.userId,
       table.accountId,
       table.startedAt.desc(),
     ),
@@ -151,10 +193,9 @@ export const syncRuns = pgTable(
 export const actions = pgTable(
   "actions",
   {
-    id: text("id").primaryKey(),
-    accountId: text("account_id")
-      .notNull()
-      .references(() => accounts.id, { onDelete: "cascade" }),
+    userId: text("user_id").notNull(),
+    id: text("id").notNull(),
+    accountId: text("account_id").notNull(),
     projectRef: text("project_ref").notNull(),
     actionType: text("action_type").notNull(),
     status: text("status").notNull(),
@@ -164,20 +205,31 @@ export const actions = pgTable(
     completedAt: utcTimestamp("completed_at"),
   },
   (table) => [
+    primaryKey({ columns: [table.userId, table.id] }),
     foreignKey({
-      columns: [table.accountId, table.projectRef],
-      foreignColumns: [projects.accountId, projects.projectRef],
+      columns: [table.userId, table.accountId, table.projectRef],
+      foreignColumns: [
+        projects.userId,
+        projects.accountId,
+        projects.projectRef,
+      ],
       name: "actions_project_fk",
     }).onDelete("cascade"),
-    index("actions_account_started_idx").on(
+    index("actions_user_account_started_idx").on(
+      table.userId,
       table.accountId,
       table.startedAt.desc(),
     ),
   ],
 );
 
-export const settings = pgTable("settings", {
-  key: text("key").primaryKey(),
-  value: text("value").notNull(),
-  updatedAt: utcTimestamp("updated_at").notNull().defaultNow(),
-});
+export const settings = pgTable(
+  "settings",
+  {
+    userId: text("user_id").notNull(),
+    key: text("key").notNull(),
+    value: text("value").notNull(),
+    updatedAt: utcTimestamp("updated_at").notNull().defaultNow(),
+  },
+  (table) => [primaryKey({ columns: [table.userId, table.key] })],
+);

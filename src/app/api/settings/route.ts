@@ -2,15 +2,15 @@ import { z } from "zod";
 import { getSettings, updateSettings } from "@/server/database/repository";
 import { ok } from "@/server/http/responses";
 import { readJson, route } from "@/server/http/route-helpers";
-import { requireSession } from "@/server/session/session-store";
+import { requireHarborUser } from "@/server/auth/harbor-auth";
 
 export const GET = route(async (request) => {
-  await requireSession(request);
-  return ok(await getSettings());
+  const { context } = await requireHarborUser(request);
+  return ok(await getSettings(context));
 });
 
 export const PATCH = route(async (request) => {
-  await requireSession(request, { csrf: true, touch: true });
+  const { context } = await requireHarborUser(request, { csrf: true });
   const input = await readJson(
     request,
     z.object({
@@ -19,7 +19,7 @@ export const PATCH = route(async (request) => {
     }),
   );
   return ok(
-    await updateSettings({
+    await updateSettings(context, {
       ...(input.refreshIntervalMinutes
         ? {
             refresh_interval_minutes: String(input.refreshIntervalMinutes),

@@ -1,9 +1,9 @@
 import { listActivity } from "@/server/database/repository";
 import { ok } from "@/server/http/responses";
 import { route } from "@/server/http/route-helpers";
-import { requireSession } from "@/server/session/session-store";
+import { requireHarborUser } from "@/server/auth/harbor-auth";
 
 export const GET = route(async (request) => {
-  await requireSession(request);
-  return ok(await listActivity());
+  const { context } = await requireHarborUser(request);
+  return ok(await listActivity(context));
 });

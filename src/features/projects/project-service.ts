@@ -12,24 +12,27 @@ import {
 } from "@/server/database/repository";
 import { supabaseManagement } from "@/server/supabase/client";
 import { normalizeProjectStatus } from "@/server/supabase/status";
+import type { TenantContext } from "@/shared/types/auth";
 
-export async function cachedProjects() {
-  return listProjects();
+export async function cachedProjects(context: TenantContext) {
+  return listProjects(context);
 }
 
 export async function refreshProjectHealth(
+  context: TenantContext,
   accountId: string,
   projectRef: string,
   dek: Buffer,
 ) {
-  await getProject(accountId, projectRef);
-  const token = await revealAccountToken(accountId, dek);
+  await getProject(context, accountId, projectRef);
+  const token = await revealAccountToken(context, accountId, dek);
   const services = await supabaseManagement.health(
     token,
     projectRef,
     accountId,
   );
   return await replaceServiceHealth(
+    context,
     accountId,
     projectRef,
     services.map((service) => ({
@@ -42,16 +45,21 @@ export async function refreshProjectHealth(
   );
 }
 
-export async function cachedProjectHealth(accountId: string, projectRef: string) {
-  return listServiceHealth(accountId, projectRef);
+export async function cachedProjectHealth(
+  context: TenantContext,
+  accountId: string,
+  projectRef: string,
+) {
+  return listServiceHealth(context, accountId, projectRef);
 }
 
 export async function restoreProject(
+  context: TenantContext,
   accountId: string,
   projectRef: string,
   dek: Buffer,
 ) {
-  const project = await getProject(accountId, projectRef);
+  const project = await getProject(context, accountId, projectRef);
   if (project.rawStatus !== "INACTIVE") {
     throw new HarborError(
       "PROJECT_NOT_PAUSED",
@@ -59,32 +67,37 @@ export async function restoreProject(
       409,
     );
   }
-  const actionId = await createAction(accountId, projectRef);
-  const token = await revealAccountToken(accountId, dek);
+  const actionId = await createAction(context, accountId, projectRef);
+  const token = await revealAccountToken(context, accountId, dek);
   try {
     await supabaseManagement.restore(token, projectRef, accountId);
-    await updateAction(actionId, "accepted", "RESTORING");
+    await updateAction(context, actionId, "accepted", "RESTORING");
     await updateProjectStatus(
+      context,
       accountId,
       projectRef,
       "RESTORING",
       "transitioning",
       "unknown",
     );
-    return await getAction(actionId);
+    return await getAction(context, actionId);
   } catch (error) {
     const code =
       error instanceof HarborError ? error.code : "RESTORE_REQUEST_FAILED";
-    await updateAction(actionId, "failed", undefined, code, true);
+    await updateAction(context, actionId, "failed", undefined, code, true);
     throw error;
   }
 }
 
-export async function reconcileAction(actionId: string, dek: Buffer) {
-  const action = await getAction(actionId);
+export async function reconcileAction(
+  context: TenantContext,
+  actionId: string,
+  dek: Buffer,
+) {
+  const action = await getAction(context, actionId);
   if (action.status === "completed" || action.status === "failed")
     return action;
-  const token = await revealAccountToken(action.accountId, dek);
+  const token = await revealAccountToken(context, action.accountId, dek);
   const project = await supabaseManagement.project(
     token,
     action.projectRef,
@@ -92,6 +105,7 @@ export async function reconcileAction(actionId: string, dek: Buffer) {
   );
   const normalized = normalizeProjectStatus(project.status);
   await updateProjectStatus(
+    context,
     action.accountId,
     action.projectRef,
     project.status,
@@ -99,11 +113,25 @@ export async function reconcileAction(actionId: string, dek: Buffer) {
     normalized.healthStatus,
   );
   if (normalized.lifecycleStatus === "active") {
-    await updateAction(actionId, "completed", project.status, undefined, true);
+    await updateAction(
+      context,
+      actionId,
+      "completed",
+      project.status,
+      undefined,
+      true,
+    );
   } else if (normalized.lifecycleStatus === "failed") {
-    await updateAction(actionId, "failed", project.status, project.status, true);
+    await updateAction(
+      context,
+      actionId,
+      "failed",
+      project.status,
+      project.status,
+      true,
+    );
   } else {
-    await updateAction(actionId, "accepted", project.status);
+    await updateAction(context, actionId, "accepted", project.status);
   }
-  return await getAction(actionId);
+  return await getAction(context, actionId);
 }

@@ -8,7 +8,10 @@ import {
   notInArray,
   sql,
 } from "drizzle-orm";
-import type { CipherEnvelope, VaultRecord } from "@/server/crypto/vault-crypto";
+import type {
+  CipherEnvelope,
+  UserVaultRecord,
+} from "@/server/crypto/hosted-crypto";
 import { getDatabase } from "@/server/database/client";
 import {
   accounts,
@@ -18,21 +21,40 @@ import {
   serviceHealth,
   settings,
   syncRuns,
-  vaultMetadata,
+  userVaults,
 } from "@/server/database/schema";
 import { HarborError } from "@/shared/errors/harbor-error";
 import type {
   ProjectHealthStatus,
   ProjectLifecycleStatus,
 } from "@/shared/types/api";
+import type { TenantContext } from "@/shared/types/auth";
 
 const now = () => new Date().toISOString();
 
-async function runBatch(queries: BatchItem<"pg">[]) {
+async function runTenantBatch(
+  context: TenantContext,
+  queries: BatchItem<"pg">[],
+) {
   if (queries.length === 0) return [];
-  return getDatabase().batch(
-    queries as [BatchItem<"pg">, ...BatchItem<"pg">[]],
+  const results = await getDatabase().batch(
+    [
+      getDatabase().execute(sql.raw("set local role harbor_runtime")),
+      getDatabase().execute(
+        sql`select set_config('harbor.user_id', ${context.userId}, true)`,
+      ),
+      ...queries,
+    ] as [BatchItem<"pg">, ...BatchItem<"pg">[]],
   );
+  return results.slice(2);
+}
+
+async function runTenantQuery<T>(
+  context: TenantContext,
+  query: BatchItem<"pg">,
+) {
+  const [result] = await runTenantBatch(context, [query]);
+  return result as T;
 }
 
 export type CachedOrganization = {
@@ -55,77 +77,72 @@ export type CachedProjectInput = {
   createdAt: string;
 };
 
-export async function isVaultInitialized() {
-  const rows = await getDatabase()
-    .select({ id: vaultMetadata.id })
-    .from(vaultMetadata)
-    .where(eq(vaultMetadata.id, 1))
-    .limit(1);
-  return rows.length > 0;
+export async function resolveGithubId(userId: string) {
+  const [, result] = await getDatabase().batch(
+    [
+      getDatabase().execute(sql.raw("set local role harbor_runtime")),
+      getDatabase().execute<{ githubId: string | null }>(
+        sql`select public.harbor_github_id(${userId}) as "githubId"`,
+      ),
+    ],
+  );
+  return result.rows[0]?.githubId ?? null;
 }
 
-export async function getVaultRecord(): Promise<VaultRecord | null> {
-  const [row] = await getDatabase()
-    .select()
-    .from(vaultMetadata)
-    .where(eq(vaultMetadata.id, 1))
-    .limit(1);
+export async function getUserVault(
+  context: TenantContext,
+): Promise<UserVaultRecord | null> {
+  const rows = await runTenantQuery<(typeof userVaults.$inferSelect)[]>(
+    context,
+    getDatabase()
+      .select()
+      .from(userVaults)
+      .where(eq(userVaults.userId, context.userId))
+      .limit(1),
+  );
+  const row = rows[0];
   if (!row) return null;
   return {
-    kdfSalt: row.kdfSalt,
-    kdfParameters: row.kdfParameters,
     wrappedDek: row.wrappedDek,
     wrappedDekNonce: row.wrappedDekNonce,
     wrappedDekTag: row.wrappedDekTag,
+    rootKeyVersion: row.rootKeyVersion,
   };
 }
 
-export async function insertVault(record: VaultRecord) {
-  await getDatabase().insert(vaultMetadata).values({
-    id: 1,
-    formatVersion: 1,
-    kdfSalt: record.kdfSalt,
-    kdfParameters: record.kdfParameters,
-    wrappedDek: record.wrappedDek,
-    wrappedDekNonce: record.wrappedDekNonce,
-    wrappedDekTag: record.wrappedDekTag,
-  });
-}
-
-export async function updateVault(record: VaultRecord) {
-  await getDatabase()
-    .update(vaultMetadata)
-    .set({
-      kdfSalt: record.kdfSalt,
-      kdfParameters: record.kdfParameters,
-      wrappedDek: record.wrappedDek,
-      wrappedDekNonce: record.wrappedDekNonce,
-      wrappedDekTag: record.wrappedDekTag,
-      updatedAt: now(),
-    })
-    .where(eq(vaultMetadata.id, 1));
-}
-
-export async function resetVaultData() {
-  const timestamp = now();
-  await runBatch([
-    getDatabase().delete(accounts),
-    getDatabase().delete(settings),
-    getDatabase().delete(vaultMetadata),
+export async function insertUserVault(
+  context: TenantContext,
+  record: UserVaultRecord,
+) {
+  await runTenantBatch(context, [
     getDatabase()
-      .insert(settings)
-      .values([
-        {
-          key: "refresh_interval_minutes",
-          value: "5",
-          updatedAt: timestamp,
-        },
-        {
-          key: "idle_timeout_minutes",
-          value: "30",
-          updatedAt: timestamp,
-        },
-      ]),
+      .insert(userVaults)
+      .values({
+        userId: context.userId,
+        wrappedDek: record.wrappedDek,
+        wrappedDekNonce: record.wrappedDekNonce,
+        wrappedDekTag: record.wrappedDekTag,
+        rootKeyVersion: record.rootKeyVersion,
+      })
+      .onConflictDoNothing({ target: userVaults.userId }),
+  ]);
+}
+
+export async function updateUserVault(
+  context: TenantContext,
+  record: UserVaultRecord,
+) {
+  await runTenantBatch(context, [
+    getDatabase()
+      .update(userVaults)
+      .set({
+        wrappedDek: record.wrappedDek,
+        wrappedDekNonce: record.wrappedDekNonce,
+        wrappedDekTag: record.wrappedDekTag,
+        rootKeyVersion: record.rootKeyVersion,
+        updatedAt: now(),
+      })
+      .where(eq(userVaults.userId, context.userId)),
   ]);
 }
 
@@ -137,20 +154,39 @@ export type AccountSecretRow = {
 };
 
 export async function getAccountSecret(
+  context: TenantContext,
   accountId: string,
 ): Promise<AccountSecretRow> {
-  const [row] = await getDatabase()
-    .select({
-      id: accounts.id,
-      label: accounts.label,
-      enabled: accounts.enabled,
-      tokenCiphertext: accounts.tokenCiphertext,
-      tokenNonce: accounts.tokenNonce,
-      tokenTag: accounts.tokenTag,
-    })
-    .from(accounts)
-    .where(eq(accounts.id, accountId))
-    .limit(1);
+  const rows = await runTenantQuery<
+    Array<{
+      id: string;
+      label: string;
+      enabled: boolean;
+      tokenCiphertext: Buffer;
+      tokenNonce: Buffer;
+      tokenTag: Buffer;
+    }>
+  >(
+    context,
+    getDatabase()
+      .select({
+        id: accounts.id,
+        label: accounts.label,
+        enabled: accounts.enabled,
+        tokenCiphertext: accounts.tokenCiphertext,
+        tokenNonce: accounts.tokenNonce,
+        tokenTag: accounts.tokenTag,
+      })
+      .from(accounts)
+      .where(
+        and(
+          eq(accounts.userId, context.userId),
+          eq(accounts.id, accountId),
+        ),
+      )
+      .limit(1),
+  );
+  const row = rows[0];
   if (!row) {
     throw new HarborError("ACCOUNT_NOT_FOUND", "Account not found.", 404);
   }
@@ -166,19 +202,38 @@ export async function getAccountSecret(
   };
 }
 
-export async function listAccountSecrets(): Promise<AccountSecretRow[]> {
-  const rows = await getDatabase()
-    .select({
-      id: accounts.id,
-      label: accounts.label,
-      enabled: accounts.enabled,
-      tokenCiphertext: accounts.tokenCiphertext,
-      tokenNonce: accounts.tokenNonce,
-      tokenTag: accounts.tokenTag,
-    })
-    .from(accounts)
-    .where(eq(accounts.enabled, true))
-    .orderBy(asc(accounts.label));
+export async function listAccountSecrets(
+  context: TenantContext,
+): Promise<AccountSecretRow[]> {
+  const rows = await runTenantQuery<
+    Array<{
+      id: string;
+      label: string;
+      enabled: boolean;
+      tokenCiphertext: Buffer;
+      tokenNonce: Buffer;
+      tokenTag: Buffer;
+    }>
+  >(
+    context,
+    getDatabase()
+      .select({
+        id: accounts.id,
+        label: accounts.label,
+        enabled: accounts.enabled,
+        tokenCiphertext: accounts.tokenCiphertext,
+        tokenNonce: accounts.tokenNonce,
+        tokenTag: accounts.tokenTag,
+      })
+      .from(accounts)
+      .where(
+        and(
+          eq(accounts.userId, context.userId),
+          eq(accounts.enabled, true),
+        ),
+      )
+      .orderBy(asc(accounts.label)),
+  );
   return rows.map((row) => ({
     id: row.id,
     label: row.label,
@@ -203,24 +258,31 @@ export type SanitizedAccount = {
   updatedAt: string;
 };
 
-export async function listAccounts(): Promise<SanitizedAccount[]> {
-  return getDatabase()
-    .select({
-      id: accounts.id,
-      label: accounts.label,
-      supabaseUserId: accounts.supabaseUserId,
-      primaryEmail: accounts.primaryEmail,
-      enabled: accounts.enabled,
-      lastSuccessfulSyncAt: accounts.lastSuccessfulSyncAt,
-      lastErrorCode: accounts.lastErrorCode,
-      createdAt: accounts.createdAt,
-      updatedAt: accounts.updatedAt,
-    })
-    .from(accounts)
-    .orderBy(asc(accounts.label));
+export async function listAccounts(
+  context: TenantContext,
+): Promise<SanitizedAccount[]> {
+  return runTenantQuery<SanitizedAccount[]>(
+    context,
+    getDatabase()
+      .select({
+        id: accounts.id,
+        label: accounts.label,
+        supabaseUserId: accounts.supabaseUserId,
+        primaryEmail: accounts.primaryEmail,
+        enabled: accounts.enabled,
+        lastSuccessfulSyncAt: accounts.lastSuccessfulSyncAt,
+        lastErrorCode: accounts.lastErrorCode,
+        createdAt: accounts.createdAt,
+        updatedAt: accounts.updatedAt,
+      })
+      .from(accounts)
+      .where(eq(accounts.userId, context.userId))
+      .orderBy(asc(accounts.label)),
+  );
 }
 
 function cacheQueries(
+  context: TenantContext,
   accountId: string,
   orgs: CachedOrganization[],
   projectInputs: CachedProjectInput[],
@@ -232,6 +294,7 @@ function cacheQueries(
       getDatabase()
         .insert(organizations)
         .values({
+          userId: context.userId,
           accountId,
           supabaseOrgId: org.id,
           slug: org.slug,
@@ -240,7 +303,11 @@ function cacheQueries(
           lastSeenAt: timestamp,
         })
         .onConflictDoUpdate({
-          target: [organizations.accountId, organizations.supabaseOrgId],
+          target: [
+            organizations.userId,
+            organizations.accountId,
+            organizations.supabaseOrgId,
+          ],
           set: {
             slug: org.slug,
             name: org.name,
@@ -255,6 +322,7 @@ function cacheQueries(
       getDatabase()
         .insert(projects)
         .values({
+          userId: context.userId,
           accountId,
           projectRef: project.ref,
           supabaseOrgId: project.organizationId,
@@ -270,7 +338,7 @@ function cacheQueries(
           removedAt: null,
         })
         .onConflictDoUpdate({
-          target: [projects.accountId, projects.projectRef],
+          target: [projects.userId, projects.accountId, projects.projectRef],
           set: {
             supabaseOrgId: project.organizationId,
             organizationSlug: project.organizationSlug,
@@ -287,6 +355,7 @@ function cacheQueries(
     );
   }
   const missingProjects = and(
+    eq(projects.userId, context.userId),
     eq(projects.accountId, accountId),
     isNull(projects.removedAt),
     projectInputs.length
@@ -306,6 +375,8 @@ function cacheQueries(
 }
 
 export async function insertAccountWithCache(input: {
+  context: TenantContext;
+  accountId?: string;
   label: string;
   userId: string;
   primaryEmail: string;
@@ -314,11 +385,12 @@ export async function insertAccountWithCache(input: {
   organizations: CachedOrganization[];
   projects: CachedProjectInput[];
 }) {
-  const accountId = randomUUID();
+  const accountId = input.accountId ?? randomUUID();
   const timestamp = now();
   try {
-    await runBatch([
+    await runTenantBatch(input.context, [
       getDatabase().insert(accounts).values({
+        userId: input.context.userId,
         id: accountId,
         label: input.label,
         supabaseUserId: input.userId,
@@ -333,6 +405,7 @@ export async function insertAccountWithCache(input: {
         updatedAt: timestamp,
       }),
       ...cacheQueries(
+        input.context,
         accountId,
         input.organizations,
         input.projects,
@@ -357,13 +430,14 @@ export async function insertAccountWithCache(input: {
 }
 
 export async function upsertAccountCache(
+  context: TenantContext,
   accountId: string,
   orgs: CachedOrganization[],
   projectInputs: CachedProjectInput[],
 ) {
   const timestamp = now();
-  await runBatch([
-    ...cacheQueries(accountId, orgs, projectInputs, timestamp),
+  await runTenantBatch(context, [
+    ...cacheQueries(context, accountId, orgs, projectInputs, timestamp),
     getDatabase()
       .update(accounts)
       .set({
@@ -371,18 +445,35 @@ export async function upsertAccountCache(
         lastErrorCode: null,
         updatedAt: timestamp,
       })
-      .where(eq(accounts.id, accountId)),
+      .where(
+        and(
+          eq(accounts.userId, context.userId),
+          eq(accounts.id, accountId),
+        ),
+      ),
   ]);
 }
 
-export async function setAccountError(accountId: string, errorCode: string) {
-  await getDatabase()
-    .update(accounts)
-    .set({ lastErrorCode: errorCode, updatedAt: now() })
-    .where(eq(accounts.id, accountId));
+export async function setAccountError(
+  context: TenantContext,
+  accountId: string,
+  errorCode: string,
+) {
+  await runTenantBatch(context, [
+    getDatabase()
+      .update(accounts)
+      .set({ lastErrorCode: errorCode, updatedAt: now() })
+      .where(
+        and(
+          eq(accounts.userId, context.userId),
+          eq(accounts.id, accountId),
+        ),
+      ),
+  ]);
 }
 
 export async function updateAccount(
+  context: TenantContext,
   accountId: string,
   patch: {
     label?: string;
@@ -391,71 +482,132 @@ export async function updateAccount(
     fingerprint?: string;
   },
 ) {
-  const current = await getAccountSecret(accountId);
-  await getDatabase()
-    .update(accounts)
-    .set({
-      label: patch.label ?? current.label,
-      enabled: patch.enabled ?? current.enabled,
-      tokenCiphertext: patch.token?.ciphertext ?? current.token.ciphertext,
-      tokenNonce: patch.token?.nonce ?? current.token.nonce,
-      tokenTag: patch.token?.tag ?? current.token.tag,
-      tokenFingerprint: patch.fingerprint,
-      updatedAt: now(),
-    })
-    .where(eq(accounts.id, accountId));
-}
-
-export async function deleteAccount(accountId: string) {
-  await getDatabase().delete(accounts).where(eq(accounts.id, accountId));
-}
-
-export async function listProjects() {
-  return getDatabase()
-    .select({
-      accountId: projects.accountId,
-      projectRef: projects.projectRef,
-      name: projects.name,
-      organizationId: projects.supabaseOrgId,
-      organizationName: sql<string>`coalesce(${organizations.name}, ${projects.organizationSlug})`,
-      organizationPlan: sql<string>`coalesce(${organizations.plan}, 'unknown')`,
-      region: projects.region,
-      cloudProvider: projects.cloudProvider,
-      rawStatus: projects.rawStatus,
-      lifecycleStatus: projects.lifecycleStatus,
-      healthStatus: projects.healthStatus,
-      lastSeenAt: projects.lastSeenAt,
-      removedAt: projects.removedAt,
-      accountLabel: accounts.label,
-      accountEmail: accounts.primaryEmail,
-      accountLastSuccessfulSyncAt: accounts.lastSuccessfulSyncAt,
-      accountLastErrorCode: accounts.lastErrorCode,
-    })
-    .from(projects)
-    .innerJoin(accounts, eq(accounts.id, projects.accountId))
-    .leftJoin(
-      organizations,
-      and(
-        eq(organizations.accountId, projects.accountId),
-        eq(organizations.supabaseOrgId, projects.supabaseOrgId),
+  const current = await getAccountSecret(context, accountId);
+  await runTenantBatch(context, [
+    getDatabase()
+      .update(accounts)
+      .set({
+        label: patch.label ?? current.label,
+        enabled: patch.enabled ?? current.enabled,
+        tokenCiphertext: patch.token?.ciphertext ?? current.token.ciphertext,
+        tokenNonce: patch.token?.nonce ?? current.token.nonce,
+        tokenTag: patch.token?.tag ?? current.token.tag,
+        tokenFingerprint: patch.fingerprint,
+        updatedAt: now(),
+      })
+      .where(
+        and(
+          eq(accounts.userId, context.userId),
+          eq(accounts.id, accountId),
+        ),
       ),
-    )
-    .where(and(eq(accounts.enabled, true), isNull(projects.removedAt)))
-    .orderBy(asc(projects.name));
+  ]);
 }
 
-export async function getProject(accountId: string, projectRef: string) {
-  const [project] = await getDatabase()
-    .select()
-    .from(projects)
-    .where(
-      and(
-        eq(projects.accountId, accountId),
-        eq(projects.projectRef, projectRef),
-        isNull(projects.removedAt),
+export async function deleteAccount(context: TenantContext, accountId: string) {
+  await runTenantBatch(context, [
+    getDatabase()
+      .delete(accounts)
+      .where(
+        and(
+          eq(accounts.userId, context.userId),
+          eq(accounts.id, accountId),
+        ),
       ),
-    )
-    .limit(1);
+  ]);
+}
+
+export async function listProjects(context: TenantContext) {
+  return runTenantQuery<
+    Array<{
+      accountId: string;
+      projectRef: string;
+      name: string;
+      organizationId: string;
+      organizationName: string;
+      organizationPlan: string;
+      region: string;
+      cloudProvider: string;
+      rawStatus: string;
+      lifecycleStatus: string;
+      healthStatus: string;
+      lastSeenAt: string;
+      removedAt: string | null;
+      accountLabel: string;
+      accountEmail: string;
+      accountLastSuccessfulSyncAt: string | null;
+      accountLastErrorCode: string | null;
+    }>
+  >(
+    context,
+    getDatabase()
+      .select({
+        accountId: projects.accountId,
+        projectRef: projects.projectRef,
+        name: projects.name,
+        organizationId: projects.supabaseOrgId,
+        organizationName: sql<string>`coalesce(${organizations.name}, ${projects.organizationSlug})`,
+        organizationPlan: sql<string>`coalesce(${organizations.plan}, 'unknown')`,
+        region: projects.region,
+        cloudProvider: projects.cloudProvider,
+        rawStatus: projects.rawStatus,
+        lifecycleStatus: projects.lifecycleStatus,
+        healthStatus: projects.healthStatus,
+        lastSeenAt: projects.lastSeenAt,
+        removedAt: projects.removedAt,
+        accountLabel: accounts.label,
+        accountEmail: accounts.primaryEmail,
+        accountLastSuccessfulSyncAt: accounts.lastSuccessfulSyncAt,
+        accountLastErrorCode: accounts.lastErrorCode,
+      })
+      .from(projects)
+      .innerJoin(
+        accounts,
+        and(
+          eq(accounts.userId, projects.userId),
+          eq(accounts.id, projects.accountId),
+        ),
+      )
+      .leftJoin(
+        organizations,
+        and(
+          eq(organizations.userId, projects.userId),
+          eq(organizations.accountId, projects.accountId),
+          eq(organizations.supabaseOrgId, projects.supabaseOrgId),
+        ),
+      )
+      .where(
+        and(
+          eq(projects.userId, context.userId),
+          eq(accounts.enabled, true),
+          isNull(projects.removedAt),
+        ),
+      )
+      .orderBy(asc(projects.name)),
+  );
+}
+
+export async function getProject(
+  context: TenantContext,
+  accountId: string,
+  projectRef: string,
+) {
+  const rows = await runTenantQuery<(typeof projects.$inferSelect)[]>(
+    context,
+    getDatabase()
+      .select()
+      .from(projects)
+      .where(
+        and(
+          eq(projects.userId, context.userId),
+          eq(projects.accountId, accountId),
+          eq(projects.projectRef, projectRef),
+          isNull(projects.removedAt),
+        ),
+      )
+      .limit(1),
+  );
+  const project = rows[0];
   if (!project) {
     throw new HarborError("PROJECT_NOT_FOUND", "Project not found.", 404);
   }
@@ -463,30 +615,35 @@ export async function getProject(accountId: string, projectRef: string) {
 }
 
 export async function updateProjectStatus(
+  context: TenantContext,
   accountId: string,
   projectRef: string,
   rawStatus: string,
   lifecycleStatus: ProjectLifecycleStatus,
   healthStatus: ProjectHealthStatus,
 ) {
-  await getDatabase()
-    .update(projects)
-    .set({
-      rawStatus,
-      lifecycleStatus,
-      healthStatus,
-      lastSeenAt: now(),
-      removedAt: null,
-    })
-    .where(
-      and(
-        eq(projects.accountId, accountId),
-        eq(projects.projectRef, projectRef),
+  await runTenantBatch(context, [
+    getDatabase()
+      .update(projects)
+      .set({
+        rawStatus,
+        lifecycleStatus,
+        healthStatus,
+        lastSeenAt: now(),
+        removedAt: null,
+      })
+      .where(
+        and(
+          eq(projects.userId, context.userId),
+          eq(projects.accountId, accountId),
+          eq(projects.projectRef, projectRef),
+        ),
       ),
-    );
+  ]);
 }
 
 export async function replaceServiceHealth(
+  context: TenantContext,
   accountId: string,
   projectRef: string,
   services: Array<{
@@ -498,17 +655,19 @@ export async function replaceServiceHealth(
   }>,
 ) {
   const timestamp = now();
-  await runBatch([
+  await runTenantBatch(context, [
     getDatabase()
       .delete(serviceHealth)
       .where(
         and(
+          eq(serviceHealth.userId, context.userId),
           eq(serviceHealth.accountId, accountId),
           eq(serviceHealth.projectRef, projectRef),
         ),
       ),
     ...services.map((service) =>
       getDatabase().insert(serviceHealth).values({
+        userId: context.userId,
         accountId,
         projectRef,
         serviceName: service.name,
@@ -520,166 +679,292 @@ export async function replaceServiceHealth(
       }),
     ),
   ]);
-  return listServiceHealth(accountId, projectRef);
+  return listServiceHealth(context, accountId, projectRef);
 }
 
 export async function listServiceHealth(
+  context: TenantContext,
   accountId: string,
   projectRef: string,
 ) {
-  return getDatabase()
-    .select({
-      name: serviceHealth.serviceName,
-      healthy: serviceHealth.healthy,
-      status: serviceHealth.rawStatus,
-      version: serviceHealth.version,
-      error: serviceHealth.errorSummary,
-      checkedAt: serviceHealth.checkedAt,
-    })
-    .from(serviceHealth)
-    .where(
-      and(
-        eq(serviceHealth.accountId, accountId),
-        eq(serviceHealth.projectRef, projectRef),
-      ),
-    )
-    .orderBy(asc(serviceHealth.serviceName));
+  return runTenantQuery<
+    Array<{
+      name: string;
+      healthy: boolean;
+      status: string;
+      version: string | null;
+      error: string | null;
+      checkedAt: string;
+    }>
+  >(
+    context,
+    getDatabase()
+      .select({
+        name: serviceHealth.serviceName,
+        healthy: serviceHealth.healthy,
+        status: serviceHealth.rawStatus,
+        version: serviceHealth.version,
+        error: serviceHealth.errorSummary,
+        checkedAt: serviceHealth.checkedAt,
+      })
+      .from(serviceHealth)
+      .where(
+        and(
+          eq(serviceHealth.userId, context.userId),
+          eq(serviceHealth.accountId, accountId),
+          eq(serviceHealth.projectRef, projectRef),
+        ),
+      )
+      .orderBy(asc(serviceHealth.serviceName)),
+  );
 }
 
-export async function startSyncRun(accountId: string, trigger: string) {
+export async function startSyncRun(
+  context: TenantContext,
+  accountId: string,
+  trigger: string,
+) {
   const id = randomUUID();
-  await getDatabase().insert(syncRuns).values({
-    id,
-    accountId,
-    trigger,
-    status: "running",
-    startedAt: now(),
-  });
+  await runTenantBatch(context, [
+    getDatabase().insert(syncRuns).values({
+      userId: context.userId,
+      id,
+      accountId,
+      trigger,
+      status: "running",
+      startedAt: now(),
+    }),
+  ]);
   return id;
 }
 
 export async function completeSyncRun(
+  context: TenantContext,
   id: string,
   status: "completed" | "failed",
   projectCount: number,
   errorCode?: string,
 ) {
-  await getDatabase()
-    .update(syncRuns)
-    .set({
-      status,
-      projectCount,
-      errorCode: errorCode ?? null,
-      completedAt: now(),
-    })
-    .where(eq(syncRuns.id, id));
+  await runTenantBatch(context, [
+    getDatabase()
+      .update(syncRuns)
+      .set({
+        status,
+        projectCount,
+        errorCode: errorCode ?? null,
+        completedAt: now(),
+      })
+      .where(
+        and(eq(syncRuns.userId, context.userId), eq(syncRuns.id, id)),
+      ),
+  ]);
 }
 
-export async function createAction(accountId: string, projectRef: string) {
+export async function createAction(
+  context: TenantContext,
+  accountId: string,
+  projectRef: string,
+) {
   const id = randomUUID();
-  await getDatabase().insert(actions).values({
-    id,
-    accountId,
-    projectRef,
-    actionType: "restore",
-    status: "pending",
-    startedAt: now(),
-  });
+  await runTenantBatch(context, [
+    getDatabase().insert(actions).values({
+      userId: context.userId,
+      id,
+      accountId,
+      projectRef,
+      actionType: "restore",
+      status: "pending",
+      startedAt: now(),
+    }),
+  ]);
   return id;
 }
 
 export async function updateAction(
+  context: TenantContext,
   id: string,
   status: string,
   upstreamStatus?: string,
   errorCode?: string,
   completed = false,
 ) {
-  await getDatabase()
-    .update(actions)
-    .set({
-      status,
-      upstreamStatus: upstreamStatus ?? null,
-      errorCode: errorCode ?? null,
-      completedAt: completed ? now() : undefined,
-    })
-    .where(eq(actions.id, id));
+  await runTenantBatch(context, [
+    getDatabase()
+      .update(actions)
+      .set({
+        status,
+        upstreamStatus: upstreamStatus ?? null,
+        errorCode: errorCode ?? null,
+        completedAt: completed ? now() : undefined,
+      })
+      .where(and(eq(actions.userId, context.userId), eq(actions.id, id))),
+  ]);
 }
 
-export async function getAction(id: string) {
-  const [row] = await getDatabase()
-    .select()
-    .from(actions)
-    .where(eq(actions.id, id))
-    .limit(1);
+export async function getAction(context: TenantContext, id: string) {
+  const rows = await runTenantQuery<(typeof actions.$inferSelect)[]>(
+    context,
+    getDatabase()
+      .select()
+      .from(actions)
+      .where(and(eq(actions.userId, context.userId), eq(actions.id, id)))
+      .limit(1),
+  );
+  const row = rows[0];
   if (!row) throw new HarborError("ACTION_NOT_FOUND", "Action not found.", 404);
   return row;
 }
 
-export async function listActivity() {
+export async function listActivity(context: TenantContext) {
   const [actionRows, refreshRows] = await Promise.all([
-    getDatabase()
-      .select({
-        id: actions.id,
-        type: actions.actionType,
-        status: actions.status,
-        projectRef: actions.projectRef,
-        accountLabel: accounts.label,
-        projectName: projects.name,
-        errorCode: actions.errorCode,
-        startedAt: actions.startedAt,
-        completedAt: actions.completedAt,
-      })
-      .from(actions)
-      .innerJoin(accounts, eq(accounts.id, actions.accountId))
-      .leftJoin(
-        projects,
-        and(
-          eq(projects.accountId, actions.accountId),
-          eq(projects.projectRef, actions.projectRef),
-        ),
-      ),
-    getDatabase()
-      .select({
-        id: syncRuns.id,
-        type: sql<string>`'refresh'`,
-        status: syncRuns.status,
-        projectRef: sql<null>`null`,
-        accountLabel: accounts.label,
-        projectName: sql<null>`null`,
-        errorCode: syncRuns.errorCode,
-        startedAt: syncRuns.startedAt,
-        completedAt: syncRuns.completedAt,
-      })
-      .from(syncRuns)
-      .innerJoin(accounts, eq(accounts.id, syncRuns.accountId)),
+    runTenantQuery<
+      Array<{
+        id: string;
+        type: string;
+        status: string;
+        projectRef: string;
+        accountLabel: string;
+        projectName: string | null;
+        errorCode: string | null;
+        startedAt: string;
+        completedAt: string | null;
+      }>
+    >(
+      context,
+      getDatabase()
+        .select({
+          id: actions.id,
+          type: actions.actionType,
+          status: actions.status,
+          projectRef: actions.projectRef,
+          accountLabel: accounts.label,
+          projectName: projects.name,
+          errorCode: actions.errorCode,
+          startedAt: actions.startedAt,
+          completedAt: actions.completedAt,
+        })
+        .from(actions)
+        .innerJoin(
+          accounts,
+          and(
+            eq(accounts.userId, actions.userId),
+            eq(accounts.id, actions.accountId),
+          ),
+        )
+        .leftJoin(
+          projects,
+          and(
+            eq(projects.userId, actions.userId),
+            eq(projects.accountId, actions.accountId),
+            eq(projects.projectRef, actions.projectRef),
+          ),
+        )
+        .where(eq(actions.userId, context.userId)),
+    ),
+    runTenantQuery<
+      Array<{
+        id: string;
+        type: string;
+        status: string;
+        projectRef: null;
+        accountLabel: string;
+        projectName: null;
+        errorCode: string | null;
+        startedAt: string;
+        completedAt: string | null;
+      }>
+    >(
+      context,
+      getDatabase()
+        .select({
+          id: syncRuns.id,
+          type: sql<string>`'refresh'`,
+          status: syncRuns.status,
+          projectRef: sql<null>`null`,
+          accountLabel: accounts.label,
+          projectName: sql<null>`null`,
+          errorCode: syncRuns.errorCode,
+          startedAt: syncRuns.startedAt,
+          completedAt: syncRuns.completedAt,
+        })
+        .from(syncRuns)
+        .innerJoin(
+          accounts,
+          and(
+            eq(accounts.userId, syncRuns.userId),
+            eq(accounts.id, syncRuns.accountId),
+          ),
+        )
+        .where(eq(syncRuns.userId, context.userId)),
+    ),
   ]);
   return [...actionRows, ...refreshRows].sort((a, b) =>
     b.startedAt.localeCompare(a.startedAt),
   );
 }
 
-export async function getSettings() {
-  const rows = await getDatabase()
-    .select({ key: settings.key, value: settings.value })
-    .from(settings);
+export async function getSettings(context: TenantContext) {
+  const rows = await runTenantQuery<Array<{ key: string; value: string }>>(
+    context,
+    getDatabase()
+      .select({ key: settings.key, value: settings.value })
+      .from(settings)
+      .where(eq(settings.userId, context.userId)),
+  );
   return Object.fromEntries(rows.map((row) => [row.key, row.value]));
 }
 
-export async function updateSettings(values: Record<string, string>) {
+export async function ensureDefaultSettings(context: TenantContext) {
   const timestamp = now();
-  await runBatch(
+  await runTenantBatch(context, [
+    getDatabase()
+      .insert(settings)
+      .values([
+        {
+          userId: context.userId,
+          key: "refresh_interval_minutes",
+          value: "5",
+          updatedAt: timestamp,
+        },
+        {
+          userId: context.userId,
+          key: "idle_timeout_minutes",
+          value: "30",
+          updatedAt: timestamp,
+        },
+      ])
+      .onConflictDoNothing(),
+  ]);
+}
+
+export async function updateSettings(
+  context: TenantContext,
+  values: Record<string, string>,
+) {
+  const timestamp = now();
+  await runTenantBatch(
+    context,
     Object.entries(values).map(([key, value]) =>
       getDatabase()
         .insert(settings)
-        .values({ key, value, updatedAt: timestamp })
+        .values({ userId: context.userId, key, value, updatedAt: timestamp })
         .onConflictDoUpdate({
-          target: settings.key,
+          target: [settings.userId, settings.key],
           set: { value, updatedAt: timestamp },
         }),
     ),
   );
-  return getSettings();
+  return getSettings(context);
+}
+
+export async function deleteTenantData(context: TenantContext) {
+  await runTenantBatch(context, [
+    getDatabase().delete(accounts).where(eq(accounts.userId, context.userId)),
+    getDatabase().delete(settings).where(eq(settings.userId, context.userId)),
+    getDatabase()
+      .delete(userVaults)
+      .where(eq(userVaults.userId, context.userId)),
+  ]);
 }
 
 export async function resetTestDatabase() {
@@ -696,13 +981,21 @@ export async function resetTestDatabase() {
     throw new Error("Refusing to reset a database other than harbor_test.");
   }
   await getDatabase().execute(
-    sql`truncate table ${actions}, ${syncRuns}, ${serviceHealth}, ${projects}, ${organizations}, ${accounts}, ${vaultMetadata}, ${settings} cascade`,
+    sql`truncate table ${actions}, ${syncRuns}, ${serviceHealth}, ${projects}, ${organizations}, ${accounts}, ${userVaults}, ${settings} cascade`,
   );
   await getDatabase()
     .insert(settings)
     .values([
-      { key: "refresh_interval_minutes", value: "5" },
-      { key: "idle_timeout_minutes", value: "30" },
+      {
+        userId: "__integration_test__",
+        key: "refresh_interval_minutes",
+        value: "5",
+      },
+      {
+        userId: "__integration_test__",
+        key: "idle_timeout_minutes",
+        value: "30",
+      },
     ])
     .onConflictDoNothing();
 }
