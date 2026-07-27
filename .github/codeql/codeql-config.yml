@@ -1,0 +1,8 @@
+name: Supabase Harbor CodeQL configuration
+
+# These directories contain mirrored, third-party design-skill tooling. Harbor
+# does not import, build, package, or execute them at runtime. CodeQL remains
+# enabled for the application, scripts, tests, and repository configuration.
+paths-ignore:
+  - .claude/skills/**
+  - .github/skills/**
