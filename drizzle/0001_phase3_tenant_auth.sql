@@ -188,19 +188,43 @@ GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE
   "service_health", "sync_runs", "actions", "settings"
 TO harbor_runtime;
 --> statement-breakpoint
-CREATE OR REPLACE FUNCTION public.harbor_github_id(auth_user_id text)
-RETURNS text
-LANGUAGE sql
-STABLE
-SECURITY DEFINER
-SET search_path = pg_catalog
-AS $identity$
-  SELECT account."accountId"
-  FROM neon_auth.account AS account
-  WHERE account."userId"::text = auth_user_id
-    AND account."providerId" = 'github'
-  LIMIT 1
-$identity$;
+DO $identity_function$
+BEGIN
+  IF EXISTS (
+    SELECT 1
+    FROM information_schema.schemata
+    WHERE schema_name = 'neon_auth'
+  ) THEN
+    EXECUTE $create_identity$
+      CREATE OR REPLACE FUNCTION public.harbor_github_id(auth_user_id text)
+      RETURNS text
+      LANGUAGE sql
+      STABLE
+      SECURITY DEFINER
+      SET search_path = pg_catalog
+      AS $identity$
+        SELECT account."accountId"
+        FROM neon_auth.account AS account
+        WHERE account."userId"::text = auth_user_id
+          AND account."providerId" = 'github'
+        LIMIT 1
+      $identity$
+    $create_identity$;
+  ELSE
+    EXECUTE $create_test_identity$
+      CREATE OR REPLACE FUNCTION public.harbor_github_id(auth_user_id text)
+      RETURNS text
+      LANGUAGE sql
+      STABLE
+      SECURITY DEFINER
+      SET search_path = pg_catalog
+      AS $identity$
+        SELECT NULL::text
+      $identity$
+    $create_test_identity$;
+  END IF;
+END
+$identity_function$;
 --> statement-breakpoint
 REVOKE ALL ON FUNCTION public.harbor_github_id(text) FROM PUBLIC;
 --> statement-breakpoint
