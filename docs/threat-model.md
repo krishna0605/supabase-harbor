@@ -8,6 +8,7 @@
 - Neon database and Managed Neon Auth credentials
 - Managed-auth sessions and GitHub provider tokens
 - Account, project, activity, and preference data
+- Encrypted keepalive publishable/legacy anon keys and worker leases
 
 ## Trust boundaries
 
@@ -33,11 +34,15 @@ tenant, user vault, settings, account, project, or activity rows.
 - One random 32-byte DEK per user
 - Versioned AES-256-GCM root-key wrapping
 - Independent PAT envelopes with unique nonces and user/account AAD
+- Independent keepalive-key envelopes with user/account/project AAD
 - Tenant-local HMAC-SHA-256 fingerprints
 - Non-null `user_id` ownership and tenant-leading indexes
 - Forced RLS on every Harbor tenant table
 - `harbor_runtime` has DML only, no DDL, superuser, or `BYPASSRLS`
 - Structured redaction for authorization, cookies, tokens, keys, and request bodies
+- Fixed Supabase RPC hosts derived from 20-character project references, disabled redirects,
+  and ten-second timeouts
+- Private worker functions, exact lease tokens, and a no-DDL/no-`BYPASSRLS` worker role
 - Production CSP, frame denial, restrictive browser permissions, and HSTS on HTTPS
 
 ## Explicit non-goals
@@ -46,5 +51,7 @@ Harbor cannot defend against a compromised deployment operator, hosting account,
 server runtime, dependency, browser session, or user device. Best-effort buffer
 wiping cannot guarantee removal from managed-runtime memory.
 
-The only Supabase Management API write remains project restore. Deleting an account
-or Harbor tenant never invokes a Supabase deletion endpoint.
+The only Supabase Management API write remains project restore. Keepalive uses the
+project Data API to call only `harbor_ping()`. Deleting an account, tenant, or
+keepalive enrollment never invokes a Supabase deletion endpoint or executes cleanup
+SQL.

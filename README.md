@@ -10,10 +10,11 @@ switching browser profiles.
 
 Harbor validates Personal Access Tokens through Supabase’s official Management API,
 encrypts each token with a per-user key, and caches organization and project metadata
-in Neon Postgres. Paused-project restore is the only upstream write exposed.
+in Neon Postgres. It can also schedule a low-privilege daily database heartbeat for
+explicitly enrolled Free Plan projects.
 
 > [!IMPORTANT]
-> Phase 3 is cloud-ready at the identity, tenant, and secret-storage layers, but the
+> Phase 4 is code-complete locally, but the
 > project is **not publicly deployed yet**. Production Vercel/Railway setup, abuse
 > controls, deployment secrets, monitoring, and release hardening remain Phase 5.
 > Do not expose a development instance to the internet.
@@ -34,6 +35,9 @@ by Supabase.
 - Unified project search, filtering, health, and lifecycle status
 - Cached data remains available when one account fails
 - Paused-project restore with reconciliation and an audit trail
+- Durable daily keepalive scheduling, leases, retries, and attempt history
+- Low-privilege publishable/legacy anon key validation; privileged keys are rejected
+- Short-lived Railway cron worker configuration with no public endpoint
 - Host, Origin, Fetch Metadata, CSRF, CSP, and secure-session protections
 
 ## Architecture
@@ -78,10 +82,12 @@ Included:
 - Paused-project restoration and reconciliation
 - Refresh and restore activity history
 - Current-user Harbor data deletion
+- Manual keepalive enrollment SQL and Harbor-only enrollment removal
+- Automatic publishable-key discovery with manual fallback
+- Daily heartbeats, run-now jobs, disable/enable controls, and worker history
 
 Not included yet:
 
-- Synthetic keepalive traffic or background jobs (Phase 4)
 - Public Vercel/Railway deployment (Phase 5)
 - Supabase Management OAuth
 - SQL execution, database contents, logs, billing, or Supabase Auth users
@@ -94,8 +100,8 @@ Not included yet:
 | 0 — Design foundation                               | Complete                                                   |
 | 1 — Tide-table UI                                   | Complete                                                   |
 | 2 — Neon Postgres                                   | Complete                                                   |
-| 3 — Hosted auth, tenant isolation, and secret model | Implemented locally; production migration pending approval |
-| 4 — Keepalive engine and Railway worker             | Pending                                                    |
+| 3 — Hosted auth, tenant isolation, and secret model | Code complete; production activation pending               |
+| 4 — Keepalive engine and Railway worker             | Code complete locally; production migration pending        |
 | 5 — Vercel/Railway deployment and hardening         | Pending                                                    |
 
 ## Requirements
@@ -166,11 +172,43 @@ available permissions:
 - `projects_read`
 - `project_admin_read`
 - `project_admin_write`
+- `api_gateway_keys_read` for automatic publishable-key discovery
 
 Harbor validates profile, organization, and project access before storing an
 encrypted token. The PAT is never displayed again. Use disposable credentials for
 the first smoke test and never place real credentials in CI, fixtures, issues, or
 screenshots.
+
+## Enroll a project for keepalive
+
+Open Harbor’s **Keepalive** page, choose an active project in a Free or unknown-plan
+organization, and:
+
+1. Copy the hardened enrollment SQL into that project’s Supabase SQL Editor.
+2. Run it yourself; Harbor never executes SQL against your project.
+3. Let Harbor discover a publishable key, or enter a publishable/legacy anon key
+   manually if the PAT lacks `api_gateway_keys_read`.
+4. Wait for the live RPC verification to succeed.
+
+The installed table is not readable by `anon`. Only a no-argument
+`public.harbor_ping()` function is executable by `anon`. Harbor rejects
+`sb_secret_` and legacy `service_role` credentials.
+
+The heartbeat reduces pause risk; it is not a contractual guarantee that Supabase
+will never pause a project and Harbor does not show an authoritative pause deadline.
+
+## Run the worker locally
+
+Set `WORKER_DATABASE_URL` to a pooled TLS connection whose login role may
+`SET ROLE harbor_worker`, then run:
+
+```powershell
+npm run worker:sweep
+```
+
+The process enqueues and claims bounded work, records outcomes, and exits. The
+committed `railway.worker.json` runs this command every 15 minutes with no public
+endpoint. Railway secrets and production cron activation remain Phase 5.
 
 ## Security model
 
@@ -214,6 +252,7 @@ Integration resets require all three guards: `NODE_ENV=test`,
 - [Threat model](docs/threat-model.md)
 - [Cloud roadmap](docs/cloud-roadmap.md)
 - [Supabase API compatibility](docs/supabase-api-compatibility.md)
+- [Keepalive worker](docs/keepalive-worker.md)
 
 ## Contributing
 

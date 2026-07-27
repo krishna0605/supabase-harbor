@@ -11,6 +11,9 @@ flowchart LR
   R --> D["Neon Postgres"]
   C --> M["Typed Management API adapter"]
   M --> SB["api.supabase.com"]
+  RC["Railway cron"] --> W["Short-lived keepalive sweep"]
+  W --> D
+  W --> DA["Supabase Data API harbor_ping RPC"]
   N --> L["Redacted server log"]
 ```
 
@@ -42,9 +45,20 @@ Account refreshes are bounded to three concurrent accounts. A failed refresh
 preserves prior cache rows. Restore POSTs are never blindly retried; accepted actions
 are reconciled by subsequent reads.
 
+## Keepalive boundary
+
+Enrollment verifies an explicitly user-installed, no-argument `harbor_ping()` RPC
+with a publishable or legacy anon key before committing the encrypted credential,
+validation job, and attempt in one tenant transaction. The key is protected with a
+separate HKDF subkey and user/account/project authenticated context.
+
+The cron worker has no browser session or public endpoint. Private
+`harbor_internal` security-definer functions enqueue, claim, complete, fail, and
+clean jobs. Claims use `FOR UPDATE SKIP LOCKED`, unique schedule slots, lease tokens,
+and expiring leases. The `harbor_worker` role has no DDL or `BYPASSRLS`.
+
 ## Deployment state
 
-Phase 3 supplies the hosted identity and data-security architecture but is not a
-public release. The Railway worker, public Vercel/Railway topology, production secret
-injection, monitoring, rate controls, and deployment verification remain later
-phases.
+Phase 4 supplies the worker artifact and durable scheduler but does not activate a
+production Railway service. Public Vercel/Railway topology, production secret
+injection, monitoring, rate controls, and deployment verification remain Phase 5.

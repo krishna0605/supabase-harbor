@@ -33,3 +33,21 @@ current_database() = 'harbor_test'
 
 Managed-auth behavior is unit-tested with synthetic sessions; live auth smoke tests
 use the branch-local `neondb` Managed Neon Auth installation.
+
+## Keepalive worker
+
+The worker is a separate, short-lived process:
+
+```powershell
+$env:WORKER_DATABASE_URL="<pooled TLS worker connection>"
+npm run worker:sweep
+```
+
+Its connection role must be explicitly allowed to `SET ROLE harbor_worker`. The
+worker refuses to start without its database URL and the same active root-key
+configuration used by the web app. Never use a project key as an environment
+variable.
+
+The committed Railway configuration schedules a sweep every 15 minutes. It is a
+deployment artifact only; production Railway activation, platform secrets, and
+monitoring are Phase 5 work.
