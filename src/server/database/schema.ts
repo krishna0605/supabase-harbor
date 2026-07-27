@@ -1,40 +1,63 @@
 import {
-  blob,
+  boolean,
+  customType,
+  foreignKey,
+  index,
   integer,
+  pgTable,
   primaryKey,
-  sqliteTable,
   text,
-} from "drizzle-orm/sqlite-core";
+  timestamp,
+} from "drizzle-orm/pg-core";
 
-export const vaultMetadata = sqliteTable("vault_metadata", {
+const bytea = customType<{ data: Buffer; driverData: string }>({
+  dataType() {
+    return "bytea";
+  },
+  toDriver(value) {
+    return `\\x${value.toString("hex")}`;
+  },
+  fromDriver(value) {
+    return Buffer.from(value.startsWith("\\x") ? value.slice(2) : value, "hex");
+  },
+});
+
+const utcTimestamp = (name: string) =>
+  timestamp(name, { withTimezone: true, mode: "string" });
+
+export const vaultMetadata = pgTable("vault_metadata", {
   id: integer("id").primaryKey(),
   formatVersion: integer("format_version").notNull(),
-  kdfSalt: blob("kdf_salt", { mode: "buffer" }).notNull(),
+  kdfSalt: bytea("kdf_salt").notNull(),
   kdfParameters: text("kdf_parameters").notNull(),
-  wrappedDek: blob("wrapped_dek", { mode: "buffer" }).notNull(),
-  wrappedDekNonce: blob("wrapped_dek_nonce", { mode: "buffer" }).notNull(),
-  wrappedDekTag: blob("wrapped_dek_tag", { mode: "buffer" }).notNull(),
-  createdAt: text("created_at").notNull(),
-  updatedAt: text("updated_at").notNull(),
+  wrappedDek: bytea("wrapped_dek").notNull(),
+  wrappedDekNonce: bytea("wrapped_dek_nonce").notNull(),
+  wrappedDekTag: bytea("wrapped_dek_tag").notNull(),
+  createdAt: utcTimestamp("created_at").notNull().defaultNow(),
+  updatedAt: utcTimestamp("updated_at").notNull().defaultNow(),
 });
 
-export const accounts = sqliteTable("accounts", {
-  id: text("id").primaryKey(),
-  label: text("label").notNull(),
-  supabaseUserId: text("supabase_user_id").notNull(),
-  primaryEmail: text("primary_email").notNull(),
-  tokenCiphertext: blob("token_ciphertext", { mode: "buffer" }).notNull(),
-  tokenNonce: blob("token_nonce", { mode: "buffer" }).notNull(),
-  tokenTag: blob("token_tag", { mode: "buffer" }).notNull(),
-  tokenFingerprint: text("token_fingerprint").notNull().unique(),
-  enabled: integer("enabled", { mode: "boolean" }).notNull().default(true),
-  lastSuccessfulSyncAt: text("last_successful_sync_at"),
-  lastErrorCode: text("last_error_code"),
-  createdAt: text("created_at").notNull(),
-  updatedAt: text("updated_at").notNull(),
-});
+export const accounts = pgTable(
+  "accounts",
+  {
+    id: text("id").primaryKey(),
+    label: text("label").notNull(),
+    supabaseUserId: text("supabase_user_id").notNull(),
+    primaryEmail: text("primary_email").notNull(),
+    tokenCiphertext: bytea("token_ciphertext").notNull(),
+    tokenNonce: bytea("token_nonce").notNull(),
+    tokenTag: bytea("token_tag").notNull(),
+    tokenFingerprint: text("token_fingerprint").notNull().unique(),
+    enabled: boolean("enabled").notNull().default(true),
+    lastSuccessfulSyncAt: utcTimestamp("last_successful_sync_at"),
+    lastErrorCode: text("last_error_code"),
+    createdAt: utcTimestamp("created_at").notNull().defaultNow(),
+    updatedAt: utcTimestamp("updated_at").notNull().defaultNow(),
+  },
+  (table) => [index("accounts_enabled_label_idx").on(table.enabled, table.label)],
+);
 
-export const organizations = sqliteTable(
+export const organizations = pgTable(
   "organizations",
   {
     accountId: text("account_id")
@@ -44,12 +67,12 @@ export const organizations = sqliteTable(
     slug: text("slug").notNull(),
     name: text("name").notNull(),
     plan: text("plan").notNull().default("unknown"),
-    lastSeenAt: text("last_seen_at").notNull(),
+    lastSeenAt: utcTimestamp("last_seen_at").notNull().defaultNow(),
   },
   (table) => [primaryKey({ columns: [table.accountId, table.supabaseOrgId] })],
 );
 
-export const projects = sqliteTable(
+export const projects = pgTable(
   "projects",
   {
     accountId: text("account_id")
@@ -64,61 +87,96 @@ export const projects = sqliteTable(
     rawStatus: text("raw_status").notNull(),
     lifecycleStatus: text("lifecycle_status").notNull(),
     healthStatus: text("health_status").notNull(),
-    createdAt: text("created_at").notNull(),
-    lastSeenAt: text("last_seen_at").notNull(),
-    removedAt: text("removed_at"),
+    createdAt: utcTimestamp("created_at").notNull(),
+    lastSeenAt: utcTimestamp("last_seen_at").notNull().defaultNow(),
+    removedAt: utcTimestamp("removed_at"),
   },
-  (table) => [primaryKey({ columns: [table.accountId, table.projectRef] })],
+  (table) => [
+    primaryKey({ columns: [table.accountId, table.projectRef] }),
+    index("projects_account_removed_name_idx").on(
+      table.accountId,
+      table.removedAt,
+      table.name,
+    ),
+  ],
 );
 
-export const serviceHealth = sqliteTable(
+export const serviceHealth = pgTable(
   "service_health",
   {
     accountId: text("account_id").notNull(),
     projectRef: text("project_ref").notNull(),
     serviceName: text("service_name").notNull(),
-    healthy: integer("healthy", { mode: "boolean" }).notNull(),
+    healthy: boolean("healthy").notNull(),
     rawStatus: text("raw_status").notNull(),
     version: text("version"),
     errorSummary: text("error_summary"),
-    checkedAt: text("checked_at").notNull(),
+    checkedAt: utcTimestamp("checked_at").notNull().defaultNow(),
   },
   (table) => [
     primaryKey({
       columns: [table.accountId, table.projectRef, table.serviceName],
     }),
+    foreignKey({
+      columns: [table.accountId, table.projectRef],
+      foreignColumns: [projects.accountId, projects.projectRef],
+      name: "service_health_project_fk",
+    }).onDelete("cascade"),
   ],
 );
 
-export const syncRuns = sqliteTable("sync_runs", {
-  id: text("id").primaryKey(),
-  accountId: text("account_id")
-    .notNull()
-    .references(() => accounts.id, { onDelete: "cascade" }),
-  trigger: text("trigger").notNull(),
-  status: text("status").notNull(),
-  projectCount: integer("project_count").notNull().default(0),
-  errorCode: text("error_code"),
-  startedAt: text("started_at").notNull(),
-  completedAt: text("completed_at"),
-});
+export const syncRuns = pgTable(
+  "sync_runs",
+  {
+    id: text("id").primaryKey(),
+    accountId: text("account_id")
+      .notNull()
+      .references(() => accounts.id, { onDelete: "cascade" }),
+    trigger: text("trigger").notNull(),
+    status: text("status").notNull(),
+    projectCount: integer("project_count").notNull().default(0),
+    errorCode: text("error_code"),
+    startedAt: utcTimestamp("started_at").notNull().defaultNow(),
+    completedAt: utcTimestamp("completed_at"),
+  },
+  (table) => [
+    index("sync_runs_account_started_idx").on(
+      table.accountId,
+      table.startedAt.desc(),
+    ),
+  ],
+);
 
-export const actions = sqliteTable("actions", {
-  id: text("id").primaryKey(),
-  accountId: text("account_id")
-    .notNull()
-    .references(() => accounts.id, { onDelete: "cascade" }),
-  projectRef: text("project_ref").notNull(),
-  actionType: text("action_type").notNull(),
-  status: text("status").notNull(),
-  upstreamStatus: text("upstream_status"),
-  errorCode: text("error_code"),
-  startedAt: text("started_at").notNull(),
-  completedAt: text("completed_at"),
-});
+export const actions = pgTable(
+  "actions",
+  {
+    id: text("id").primaryKey(),
+    accountId: text("account_id")
+      .notNull()
+      .references(() => accounts.id, { onDelete: "cascade" }),
+    projectRef: text("project_ref").notNull(),
+    actionType: text("action_type").notNull(),
+    status: text("status").notNull(),
+    upstreamStatus: text("upstream_status"),
+    errorCode: text("error_code"),
+    startedAt: utcTimestamp("started_at").notNull().defaultNow(),
+    completedAt: utcTimestamp("completed_at"),
+  },
+  (table) => [
+    foreignKey({
+      columns: [table.accountId, table.projectRef],
+      foreignColumns: [projects.accountId, projects.projectRef],
+      name: "actions_project_fk",
+    }).onDelete("cascade"),
+    index("actions_account_started_idx").on(
+      table.accountId,
+      table.startedAt.desc(),
+    ),
+  ],
+);
 
-export const settings = sqliteTable("settings", {
+export const settings = pgTable("settings", {
   key: text("key").primaryKey(),
   value: text("value").notNull(),
-  updatedAt: text("updated_at").notNull(),
+  updatedAt: utcTimestamp("updated_at").notNull().defaultNow(),
 });
