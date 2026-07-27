@@ -154,6 +154,21 @@ function tokenAad(userId: string, accountId: string) {
   return aad(["supabase-harbor", "pat", "v2", userId, accountId]);
 }
 
+function keepaliveCredentialAad(
+  userId: string,
+  accountId: string,
+  projectRef: string,
+) {
+  return aad([
+    "supabase-harbor",
+    "keepalive-key",
+    "v1",
+    userId,
+    accountId,
+    projectRef,
+  ]);
+}
+
 function wrapDek(dek: Buffer, userId: string, rootKey: RootKey) {
   const wrapped = encryptGcm(dek, rootKey.key, vaultAad(userId));
   return {
@@ -251,6 +266,68 @@ export function fingerprintHostedToken(token: string, dek: Buffer) {
     return createHmac("sha256", key)
       .update("supabase-harbor:pat-fingerprint:v2\0")
       .update(token)
+      .digest("hex");
+  } finally {
+    key.fill(0);
+  }
+}
+
+export function encryptKeepaliveCredential(
+  credential: string,
+  userId: string,
+  accountId: string,
+  projectRef: string,
+  dek: Buffer,
+) {
+  const key = deriveSubkey(dek, "keepalive-credential-encryption-key:v1");
+  try {
+    return encryptGcm(
+      Buffer.from(credential, "utf8"),
+      key,
+      keepaliveCredentialAad(userId, accountId, projectRef),
+    );
+  } finally {
+    key.fill(0);
+  }
+}
+
+export function decryptKeepaliveCredential(
+  envelope: CipherEnvelope,
+  userId: string,
+  accountId: string,
+  projectRef: string,
+  dek: Buffer,
+) {
+  const key = deriveSubkey(dek, "keepalive-credential-encryption-key:v1");
+  try {
+    return decryptGcm(
+      envelope,
+      key,
+      keepaliveCredentialAad(userId, accountId, projectRef),
+    ).toString("utf8");
+  } finally {
+    key.fill(0);
+  }
+}
+
+export function fingerprintKeepaliveCredential(
+  credential: string,
+  userId: string,
+  accountId: string,
+  projectRef: string,
+  dek: Buffer,
+) {
+  const key = deriveSubkey(dek, "keepalive-credential-fingerprint-key:v1");
+  try {
+    return createHmac("sha256", key)
+      .update("supabase-harbor:keepalive-credential-fingerprint:v1\0")
+      .update(userId)
+      .update("\0")
+      .update(accountId)
+      .update("\0")
+      .update(projectRef)
+      .update("\0")
+      .update(credential)
       .digest("hex");
   } finally {
     key.fill(0);

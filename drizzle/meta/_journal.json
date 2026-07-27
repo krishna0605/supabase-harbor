@@ -29,6 +29,13 @@
       "when": 1785178733425,
       "tag": "0003_fine_zaran",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1785182400000,
+      "tag": "0004_keepalive_key_rotation",
+      "breakpoints": true
     }
   ]
 }

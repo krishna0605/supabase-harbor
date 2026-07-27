@@ -512,3 +512,4 @@ GRANT EXECUTE ON FUNCTION
   harbor_internal.fail_keepalive_job(text, text, text, text, integer, text, integer, boolean),
   harbor_internal.cleanup_keepalive_history(timestamp with time zone)
 TO harbor_worker;
+--> statement-breakpoint
