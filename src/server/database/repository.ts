@@ -1,13 +1,40 @@
 import { randomUUID } from "node:crypto";
-import { getDatabase } from "@/server/database/client";
+import type { BatchItem } from "drizzle-orm/batch";
+import {
+  and,
+  asc,
+  desc,
+  eq,
+  isNull,
+  notInArray,
+  sql,
+} from "drizzle-orm";
 import type { CipherEnvelope, VaultRecord } from "@/server/crypto/vault-crypto";
+import { getDatabase } from "@/server/database/client";
+import {
+  accounts,
+  actions,
+  organizations,
+  projects,
+  serviceHealth,
+  settings,
+  syncRuns,
+  vaultMetadata,
+} from "@/server/database/schema";
+import { HarborError } from "@/shared/errors/harbor-error";
 import type {
   ProjectHealthStatus,
   ProjectLifecycleStatus,
 } from "@/shared/types/api";
-import { HarborError } from "@/shared/errors/harbor-error";
 
 const now = () => new Date().toISOString();
+
+async function runBatch(queries: BatchItem<"pg">[]) {
+  if (queries.length === 0) return [];
+  return getDatabase().batch(
+    queries as [BatchItem<"pg">, ...BatchItem<"pg">[]],
+  );
+}
 
 export type CachedOrganization = {
   id: string;
@@ -29,90 +56,78 @@ export type CachedProjectInput = {
   createdAt: string;
 };
 
-export function isVaultInitialized() {
-  return Boolean(
-    getDatabase()
-      .sqlite.prepare("SELECT 1 FROM vault_metadata WHERE id = 1")
-      .get(),
-  );
+export async function isVaultInitialized() {
+  const rows = await getDatabase()
+    .select({ id: vaultMetadata.id })
+    .from(vaultMetadata)
+    .where(eq(vaultMetadata.id, 1))
+    .limit(1);
+  return rows.length > 0;
 }
 
-export function getVaultRecord(): VaultRecord | null {
-  const row = getDatabase()
-    .sqlite.prepare("SELECT * FROM vault_metadata WHERE id = 1")
-    .get() as
-    | {
-        kdf_salt: Buffer;
-        kdf_parameters: string;
-        wrapped_dek: Buffer;
-        wrapped_dek_nonce: Buffer;
-        wrapped_dek_tag: Buffer;
-      }
-    | undefined;
+export async function getVaultRecord(): Promise<VaultRecord | null> {
+  const [row] = await getDatabase()
+    .select()
+    .from(vaultMetadata)
+    .where(eq(vaultMetadata.id, 1))
+    .limit(1);
   if (!row) return null;
   return {
-    kdfSalt: row.kdf_salt,
-    kdfParameters: row.kdf_parameters,
-    wrappedDek: row.wrapped_dek,
-    wrappedDekNonce: row.wrapped_dek_nonce,
-    wrappedDekTag: row.wrapped_dek_tag,
+    kdfSalt: row.kdfSalt,
+    kdfParameters: row.kdfParameters,
+    wrappedDek: row.wrappedDek,
+    wrappedDekNonce: row.wrappedDekNonce,
+    wrappedDekTag: row.wrappedDekTag,
   };
 }
 
-export function insertVault(record: VaultRecord) {
+export async function insertVault(record: VaultRecord) {
+  await getDatabase().insert(vaultMetadata).values({
+    id: 1,
+    formatVersion: 1,
+    kdfSalt: record.kdfSalt,
+    kdfParameters: record.kdfParameters,
+    wrappedDek: record.wrappedDek,
+    wrappedDekNonce: record.wrappedDekNonce,
+    wrappedDekTag: record.wrappedDekTag,
+  });
+}
+
+export async function updateVault(record: VaultRecord) {
+  await getDatabase()
+    .update(vaultMetadata)
+    .set({
+      kdfSalt: record.kdfSalt,
+      kdfParameters: record.kdfParameters,
+      wrappedDek: record.wrappedDek,
+      wrappedDekNonce: record.wrappedDekNonce,
+      wrappedDekTag: record.wrappedDekTag,
+      updatedAt: now(),
+    })
+    .where(eq(vaultMetadata.id, 1));
+}
+
+export async function resetVaultData() {
   const timestamp = now();
-  getDatabase()
-    .sqlite.prepare(
-      `INSERT INTO vault_metadata
-      (id, format_version, kdf_salt, kdf_parameters, wrapped_dek, wrapped_dek_nonce, wrapped_dek_tag, created_at, updated_at)
-      VALUES (1, 1, ?, ?, ?, ?, ?, ?, ?)`,
-    )
-    .run(
-      record.kdfSalt,
-      record.kdfParameters,
-      record.wrappedDek,
-      record.wrappedDekNonce,
-      record.wrappedDekTag,
-      timestamp,
-      timestamp,
-    );
-}
-
-export function updateVault(record: VaultRecord) {
-  getDatabase()
-    .sqlite.prepare(
-      `UPDATE vault_metadata SET kdf_salt = ?, kdf_parameters = ?, wrapped_dek = ?,
-       wrapped_dek_nonce = ?, wrapped_dek_tag = ?, updated_at = ? WHERE id = 1`,
-    )
-    .run(
-      record.kdfSalt,
-      record.kdfParameters,
-      record.wrappedDek,
-      record.wrappedDekNonce,
-      record.wrappedDekTag,
-      now(),
-    );
-}
-
-export function resetVaultData() {
-  const sqlite = getDatabase().sqlite;
-  sqlite.transaction(() => {
-    sqlite.prepare("DELETE FROM accounts").run();
-    sqlite.prepare("DELETE FROM settings").run();
-    sqlite.prepare("DELETE FROM vault_metadata").run();
-    sqlite
-      .prepare(
-        "INSERT INTO settings(key, value, updated_at) VALUES (?, ?, ?), (?, ?, ?)",
-      )
-      .run(
-        "refresh_interval_minutes",
-        "5",
-        now(),
-        "idle_timeout_minutes",
-        "30",
-        now(),
-      );
-  })();
+  await runBatch([
+    getDatabase().delete(accounts),
+    getDatabase().delete(settings),
+    getDatabase().delete(vaultMetadata),
+    getDatabase()
+      .insert(settings)
+      .values([
+        {
+          key: "refresh_interval_minutes",
+          value: "5",
+          updatedAt: timestamp,
+        },
+        {
+          key: "idle_timeout_minutes",
+          value: "30",
+          updatedAt: timestamp,
+        },
+      ]),
+  ]);
 }
 
 export type AccountSecretRow = {
@@ -122,53 +137,57 @@ export type AccountSecretRow = {
   token: CipherEnvelope;
 };
 
-export function getAccountSecret(accountId: string): AccountSecretRow {
-  const row = getDatabase()
-    .sqlite.prepare("SELECT * FROM accounts WHERE id = ?")
-    .get(accountId) as
-    | {
-        id: string;
-        label: string;
-        enabled: number;
-        token_ciphertext: Buffer;
-        token_nonce: Buffer;
-        token_tag: Buffer;
-      }
-    | undefined;
+export async function getAccountSecret(
+  accountId: string,
+): Promise<AccountSecretRow> {
+  const [row] = await getDatabase()
+    .select({
+      id: accounts.id,
+      label: accounts.label,
+      enabled: accounts.enabled,
+      tokenCiphertext: accounts.tokenCiphertext,
+      tokenNonce: accounts.tokenNonce,
+      tokenTag: accounts.tokenTag,
+    })
+    .from(accounts)
+    .where(eq(accounts.id, accountId))
+    .limit(1);
   if (!row) {
     throw new HarborError("ACCOUNT_NOT_FOUND", "Account not found.", 404);
   }
   return {
     id: row.id,
     label: row.label,
-    enabled: Boolean(row.enabled),
+    enabled: row.enabled,
     token: {
-      ciphertext: row.token_ciphertext,
-      nonce: row.token_nonce,
-      tag: row.token_tag,
+      ciphertext: row.tokenCiphertext,
+      nonce: row.tokenNonce,
+      tag: row.tokenTag,
     },
   };
 }
 
-export function listAccountSecrets() {
-  const rows = getDatabase()
-    .sqlite.prepare("SELECT * FROM accounts WHERE enabled = 1 ORDER BY label")
-    .all() as Array<{
-    id: string;
-    label: string;
-    enabled: number;
-    token_ciphertext: Buffer;
-    token_nonce: Buffer;
-    token_tag: Buffer;
-  }>;
+export async function listAccountSecrets(): Promise<AccountSecretRow[]> {
+  const rows = await getDatabase()
+    .select({
+      id: accounts.id,
+      label: accounts.label,
+      enabled: accounts.enabled,
+      tokenCiphertext: accounts.tokenCiphertext,
+      tokenNonce: accounts.tokenNonce,
+      tokenTag: accounts.tokenTag,
+    })
+    .from(accounts)
+    .where(eq(accounts.enabled, true))
+    .orderBy(asc(accounts.label));
   return rows.map((row) => ({
     id: row.id,
     label: row.label,
-    enabled: Boolean(row.enabled),
+    enabled: row.enabled,
     token: {
-      ciphertext: row.token_ciphertext,
-      nonce: row.token_nonce,
-      tag: row.token_tag,
+      ciphertext: row.tokenCiphertext,
+      nonce: row.tokenNonce,
+      tag: row.tokenTag,
     },
   }));
 }
@@ -185,19 +204,109 @@ export type SanitizedAccount = {
   updatedAt: string;
 };
 
-export function listAccounts(): SanitizedAccount[] {
-  const rows = getDatabase()
-    .sqlite.prepare(
-      `SELECT id, label, supabase_user_id AS supabaseUserId, primary_email AS primaryEmail,
-       enabled, last_successful_sync_at AS lastSuccessfulSyncAt, last_error_code AS lastErrorCode,
-       created_at AS createdAt, updated_at AS updatedAt
-       FROM accounts ORDER BY label`,
-    )
-    .all() as Array<Omit<SanitizedAccount, "enabled"> & { enabled: number }>;
-  return rows.map((row) => ({ ...row, enabled: Boolean(row.enabled) }));
+export async function listAccounts(): Promise<SanitizedAccount[]> {
+  return getDatabase()
+    .select({
+      id: accounts.id,
+      label: accounts.label,
+      supabaseUserId: accounts.supabaseUserId,
+      primaryEmail: accounts.primaryEmail,
+      enabled: accounts.enabled,
+      lastSuccessfulSyncAt: accounts.lastSuccessfulSyncAt,
+      lastErrorCode: accounts.lastErrorCode,
+      createdAt: accounts.createdAt,
+      updatedAt: accounts.updatedAt,
+    })
+    .from(accounts)
+    .orderBy(asc(accounts.label));
 }
 
-export function insertAccountWithCache(input: {
+function cacheQueries(
+  accountId: string,
+  orgs: CachedOrganization[],
+  projectInputs: CachedProjectInput[],
+  timestamp: string,
+): BatchItem<"pg">[] {
+  const queries: BatchItem<"pg">[] = [];
+  for (const org of orgs) {
+    queries.push(
+      getDatabase()
+        .insert(organizations)
+        .values({
+          accountId,
+          supabaseOrgId: org.id,
+          slug: org.slug,
+          name: org.name,
+          plan: org.plan,
+          lastSeenAt: timestamp,
+        })
+        .onConflictDoUpdate({
+          target: [organizations.accountId, organizations.supabaseOrgId],
+          set: {
+            slug: org.slug,
+            name: org.name,
+            plan: org.plan,
+            lastSeenAt: timestamp,
+          },
+        }),
+    );
+  }
+  for (const project of projectInputs) {
+    queries.push(
+      getDatabase()
+        .insert(projects)
+        .values({
+          accountId,
+          projectRef: project.ref,
+          supabaseOrgId: project.organizationId,
+          organizationSlug: project.organizationSlug,
+          name: project.name,
+          region: project.region,
+          cloudProvider: project.cloudProvider,
+          rawStatus: project.rawStatus,
+          lifecycleStatus: project.lifecycleStatus,
+          healthStatus: project.healthStatus,
+          createdAt: project.createdAt,
+          lastSeenAt: timestamp,
+          removedAt: null,
+        })
+        .onConflictDoUpdate({
+          target: [projects.accountId, projects.projectRef],
+          set: {
+            supabaseOrgId: project.organizationId,
+            organizationSlug: project.organizationSlug,
+            name: project.name,
+            region: project.region,
+            cloudProvider: project.cloudProvider,
+            rawStatus: project.rawStatus,
+            lifecycleStatus: project.lifecycleStatus,
+            healthStatus: project.healthStatus,
+            lastSeenAt: timestamp,
+            removedAt: null,
+          },
+        }),
+    );
+  }
+  const missingProjects = and(
+    eq(projects.accountId, accountId),
+    isNull(projects.removedAt),
+    projectInputs.length
+      ? notInArray(
+          projects.projectRef,
+          projectInputs.map((project) => project.ref),
+        )
+      : undefined,
+  );
+  queries.push(
+    getDatabase()
+      .update(projects)
+      .set({ removedAt: timestamp })
+      .where(missingProjects),
+  );
+  return queries;
+}
+
+export async function insertAccountWithCache(input: {
   label: string;
   userId: string;
   primaryEmail: string;
@@ -206,41 +315,37 @@ export function insertAccountWithCache(input: {
   organizations: CachedOrganization[];
   projects: CachedProjectInput[];
 }) {
-  const sqlite = getDatabase().sqlite;
   const accountId = randomUUID();
   const timestamp = now();
   try {
-    sqlite.transaction(() => {
-      sqlite
-        .prepare(
-          `INSERT INTO accounts
-          (id, label, supabase_user_id, primary_email, token_ciphertext, token_nonce, token_tag,
-           token_fingerprint, enabled, last_successful_sync_at, created_at, updated_at)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?)`,
-        )
-        .run(
-          accountId,
-          input.label,
-          input.userId,
-          input.primaryEmail,
-          input.encryptedToken.ciphertext,
-          input.encryptedToken.nonce,
-          input.encryptedToken.tag,
-          input.fingerprint,
-          timestamp,
-          timestamp,
-          timestamp,
-        );
-      upsertCacheInternal(
-        sqlite,
+    await runBatch([
+      getDatabase().insert(accounts).values({
+        id: accountId,
+        label: input.label,
+        supabaseUserId: input.userId,
+        primaryEmail: input.primaryEmail,
+        tokenCiphertext: input.encryptedToken.ciphertext,
+        tokenNonce: input.encryptedToken.nonce,
+        tokenTag: input.encryptedToken.tag,
+        tokenFingerprint: input.fingerprint,
+        enabled: true,
+        lastSuccessfulSyncAt: timestamp,
+        createdAt: timestamp,
+        updatedAt: timestamp,
+      }),
+      ...cacheQueries(
         accountId,
         input.organizations,
         input.projects,
         timestamp,
-      );
-    })();
+      ),
+    ]);
   } catch (error) {
-    if (String(error).includes("token_fingerprint")) {
+    const code =
+      typeof error === "object" && error && "code" in error
+        ? String(error.code)
+        : "";
+    if (code === "23505" || String(error).includes("token_fingerprint")) {
       throw new HarborError(
         "DUPLICATE_ACCOUNT",
         "This access token is already connected.",
@@ -252,100 +357,33 @@ export function insertAccountWithCache(input: {
   return accountId;
 }
 
-function upsertCacheInternal(
-  sqlite: ReturnType<typeof getDatabase>["sqlite"],
-  accountId: string,
-  orgs: CachedOrganization[],
-  projectInputs: CachedProjectInput[],
-  timestamp: string,
-) {
-  const orgStatement = sqlite.prepare(
-    `INSERT INTO organizations(account_id, supabase_org_id, slug, name, plan, last_seen_at)
-     VALUES (?, ?, ?, ?, ?, ?)
-     ON CONFLICT(account_id, supabase_org_id) DO UPDATE SET
-     slug = excluded.slug, name = excluded.name, plan = excluded.plan, last_seen_at = excluded.last_seen_at`,
-  );
-  for (const org of orgs) {
-    orgStatement.run(
-      accountId,
-      org.id,
-      org.slug,
-      org.name,
-      org.plan,
-      timestamp,
-    );
-  }
-
-  const projectStatement = sqlite.prepare(
-    `INSERT INTO projects
-     (account_id, project_ref, supabase_org_id, organization_slug, name, region, cloud_provider,
-      raw_status, lifecycle_status, health_status, created_at, last_seen_at, removed_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)
-     ON CONFLICT(account_id, project_ref) DO UPDATE SET
-      supabase_org_id = excluded.supabase_org_id, organization_slug = excluded.organization_slug,
-      name = excluded.name, region = excluded.region, cloud_provider = excluded.cloud_provider,
-      raw_status = excluded.raw_status, lifecycle_status = excluded.lifecycle_status,
-      health_status = excluded.health_status, last_seen_at = excluded.last_seen_at, removed_at = NULL`,
-  );
-  for (const project of projectInputs) {
-    projectStatement.run(
-      accountId,
-      project.ref,
-      project.organizationId,
-      project.organizationSlug,
-      project.name,
-      project.region,
-      project.cloudProvider,
-      project.rawStatus,
-      project.lifecycleStatus,
-      project.healthStatus,
-      project.createdAt,
-      timestamp,
-    );
-  }
-  const refs = projectInputs.map((project) => project.ref);
-  if (refs.length > 0) {
-    const placeholders = refs.map(() => "?").join(", ");
-    sqlite
-      .prepare(
-        `UPDATE projects SET removed_at = ? WHERE account_id = ? AND project_ref NOT IN (${placeholders}) AND removed_at IS NULL`,
-      )
-      .run(timestamp, accountId, ...refs);
-  } else {
-    sqlite
-      .prepare(
-        "UPDATE projects SET removed_at = ? WHERE account_id = ? AND removed_at IS NULL",
-      )
-      .run(timestamp, accountId);
-  }
-}
-
-export function upsertAccountCache(
+export async function upsertAccountCache(
   accountId: string,
   orgs: CachedOrganization[],
   projectInputs: CachedProjectInput[],
 ) {
-  const sqlite = getDatabase().sqlite;
   const timestamp = now();
-  sqlite.transaction(() => {
-    upsertCacheInternal(sqlite, accountId, orgs, projectInputs, timestamp);
-    sqlite
-      .prepare(
-        "UPDATE accounts SET last_successful_sync_at = ?, last_error_code = NULL, updated_at = ? WHERE id = ?",
-      )
-      .run(timestamp, timestamp, accountId);
-  })();
+  await runBatch([
+    ...cacheQueries(accountId, orgs, projectInputs, timestamp),
+    getDatabase()
+      .update(accounts)
+      .set({
+        lastSuccessfulSyncAt: timestamp,
+        lastErrorCode: null,
+        updatedAt: timestamp,
+      })
+      .where(eq(accounts.id, accountId)),
+  ]);
 }
 
-export function setAccountError(accountId: string, errorCode: string) {
-  getDatabase()
-    .sqlite.prepare(
-      "UPDATE accounts SET last_error_code = ?, updated_at = ? WHERE id = ?",
-    )
-    .run(errorCode, now(), accountId);
+export async function setAccountError(accountId: string, errorCode: string) {
+  await getDatabase()
+    .update(accounts)
+    .set({ lastErrorCode: errorCode, updatedAt: now() })
+    .where(eq(accounts.id, accountId));
 }
 
-export function updateAccount(
+export async function updateAccount(
   accountId: string,
   patch: {
     label?: string;
@@ -354,84 +392,102 @@ export function updateAccount(
     fingerprint?: string;
   },
 ) {
-  const current = getAccountSecret(accountId);
-  getDatabase()
-    .sqlite.prepare(
-      `UPDATE accounts SET label = ?, enabled = ?, token_ciphertext = ?, token_nonce = ?,
-       token_tag = ?, token_fingerprint = COALESCE(?, token_fingerprint), updated_at = ? WHERE id = ?`,
-    )
-    .run(
-      patch.label ?? current.label,
-      (patch.enabled ?? current.enabled) ? 1 : 0,
-      patch.token?.ciphertext ?? current.token.ciphertext,
-      patch.token?.nonce ?? current.token.nonce,
-      patch.token?.tag ?? current.token.tag,
-      patch.fingerprint ?? null,
-      now(),
-      accountId,
-    );
+  const current = await getAccountSecret(accountId);
+  await getDatabase()
+    .update(accounts)
+    .set({
+      label: patch.label ?? current.label,
+      enabled: patch.enabled ?? current.enabled,
+      tokenCiphertext: patch.token?.ciphertext ?? current.token.ciphertext,
+      tokenNonce: patch.token?.nonce ?? current.token.nonce,
+      tokenTag: patch.token?.tag ?? current.token.tag,
+      tokenFingerprint: patch.fingerprint,
+      updatedAt: now(),
+    })
+    .where(eq(accounts.id, accountId));
 }
 
-export function deleteAccount(accountId: string) {
-  getDatabase()
-    .sqlite.prepare("DELETE FROM accounts WHERE id = ?")
-    .run(accountId);
+export async function deleteAccount(accountId: string) {
+  await getDatabase().delete(accounts).where(eq(accounts.id, accountId));
 }
 
-export function listProjects() {
+export async function listProjects() {
   return getDatabase()
-    .sqlite.prepare(
-      `SELECT p.account_id AS accountId, p.project_ref AS projectRef, p.name,
-       p.supabase_org_id AS organizationId, COALESCE(o.name, p.organization_slug) AS organizationName,
-       COALESCE(o.plan, 'unknown') AS organizationPlan, p.region, p.cloud_provider AS cloudProvider,
-       p.raw_status AS rawStatus, p.lifecycle_status AS lifecycleStatus, p.health_status AS healthStatus,
-       p.last_seen_at AS lastSeenAt, p.removed_at AS removedAt,
-       a.label AS accountLabel, a.primary_email AS accountEmail,
-       a.last_successful_sync_at AS accountLastSuccessfulSyncAt, a.last_error_code AS accountLastErrorCode
-       FROM projects p
-       JOIN accounts a ON a.id = p.account_id
-       LEFT JOIN organizations o ON o.account_id = p.account_id AND o.supabase_org_id = p.supabase_org_id
-       WHERE a.enabled = 1 AND p.removed_at IS NULL
-       ORDER BY p.name`,
+    .select({
+      accountId: projects.accountId,
+      projectRef: projects.projectRef,
+      name: projects.name,
+      organizationId: projects.supabaseOrgId,
+      organizationName: sql<string>`coalesce(${organizations.name}, ${projects.organizationSlug})`,
+      organizationPlan: sql<string>`coalesce(${organizations.plan}, 'unknown')`,
+      region: projects.region,
+      cloudProvider: projects.cloudProvider,
+      rawStatus: projects.rawStatus,
+      lifecycleStatus: projects.lifecycleStatus,
+      healthStatus: projects.healthStatus,
+      lastSeenAt: projects.lastSeenAt,
+      removedAt: projects.removedAt,
+      accountLabel: accounts.label,
+      accountEmail: accounts.primaryEmail,
+      accountLastSuccessfulSyncAt: accounts.lastSuccessfulSyncAt,
+      accountLastErrorCode: accounts.lastErrorCode,
+    })
+    .from(projects)
+    .innerJoin(accounts, eq(accounts.id, projects.accountId))
+    .leftJoin(
+      organizations,
+      and(
+        eq(organizations.accountId, projects.accountId),
+        eq(organizations.supabaseOrgId, projects.supabaseOrgId),
+      ),
     )
-    .all();
+    .where(and(eq(accounts.enabled, true), isNull(projects.removedAt)))
+    .orderBy(asc(projects.name));
 }
 
-export function getProject(accountId: string, projectRef: string) {
-  const project = getDatabase()
-    .sqlite.prepare(
-      "SELECT * FROM projects WHERE account_id = ? AND project_ref = ? AND removed_at IS NULL",
+export async function getProject(accountId: string, projectRef: string) {
+  const [project] = await getDatabase()
+    .select()
+    .from(projects)
+    .where(
+      and(
+        eq(projects.accountId, accountId),
+        eq(projects.projectRef, projectRef),
+        isNull(projects.removedAt),
+      ),
     )
-    .get(accountId, projectRef);
+    .limit(1);
   if (!project) {
     throw new HarborError("PROJECT_NOT_FOUND", "Project not found.", 404);
   }
-  return project as Record<string, unknown>;
+  return project;
 }
 
-export function updateProjectStatus(
+export async function updateProjectStatus(
   accountId: string,
   projectRef: string,
   rawStatus: string,
   lifecycleStatus: ProjectLifecycleStatus,
   healthStatus: ProjectHealthStatus,
 ) {
-  getDatabase()
-    .sqlite.prepare(
-      `UPDATE projects SET raw_status = ?, lifecycle_status = ?, health_status = ?,
-       last_seen_at = ?, removed_at = NULL WHERE account_id = ? AND project_ref = ?`,
-    )
-    .run(
+  await getDatabase()
+    .update(projects)
+    .set({
       rawStatus,
       lifecycleStatus,
       healthStatus,
-      now(),
-      accountId,
-      projectRef,
+      lastSeenAt: now(),
+      removedAt: null,
+    })
+    .where(
+      and(
+        eq(projects.accountId, accountId),
+        eq(projects.projectRef, projectRef),
+      ),
     );
 }
 
-export function replaceServiceHealth(
+export async function replaceServiceHealth(
   accountId: string,
   projectRef: string,
   services: Array<{
@@ -442,170 +498,212 @@ export function replaceServiceHealth(
     error?: string;
   }>,
 ) {
-  const sqlite = getDatabase().sqlite;
   const timestamp = now();
-  sqlite.transaction(() => {
-    sqlite
-      .prepare(
-        "DELETE FROM service_health WHERE account_id = ? AND project_ref = ?",
-      )
-      .run(accountId, projectRef);
-    const statement = sqlite.prepare(
-      `INSERT INTO service_health
-       (account_id, project_ref, service_name, healthy, raw_status, version, error_summary, checked_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-    );
-    for (const service of services) {
-      statement.run(
+  await runBatch([
+    getDatabase()
+      .delete(serviceHealth)
+      .where(
+        and(
+          eq(serviceHealth.accountId, accountId),
+          eq(serviceHealth.projectRef, projectRef),
+        ),
+      ),
+    ...services.map((service) =>
+      getDatabase().insert(serviceHealth).values({
         accountId,
         projectRef,
-        service.name,
-        service.healthy ? 1 : 0,
-        service.status,
-        service.version ?? null,
-        service.error ?? null,
-        timestamp,
-      );
-    }
-  })();
+        serviceName: service.name,
+        healthy: service.healthy,
+        rawStatus: service.status,
+        version: service.version,
+        errorSummary: service.error,
+        checkedAt: timestamp,
+      }),
+    ),
+  ]);
   return listServiceHealth(accountId, projectRef);
 }
 
-export function listServiceHealth(accountId: string, projectRef: string) {
+export async function listServiceHealth(
+  accountId: string,
+  projectRef: string,
+) {
   return getDatabase()
-    .sqlite.prepare(
-      `SELECT service_name AS name, healthy, raw_status AS status, version,
-       error_summary AS error, checked_at AS checkedAt
-       FROM service_health WHERE account_id = ? AND project_ref = ? ORDER BY service_name`,
+    .select({
+      name: serviceHealth.serviceName,
+      healthy: serviceHealth.healthy,
+      status: serviceHealth.rawStatus,
+      version: serviceHealth.version,
+      error: serviceHealth.errorSummary,
+      checkedAt: serviceHealth.checkedAt,
+    })
+    .from(serviceHealth)
+    .where(
+      and(
+        eq(serviceHealth.accountId, accountId),
+        eq(serviceHealth.projectRef, projectRef),
+      ),
     )
-    .all(accountId, projectRef)
-    .map((row) => {
-      const value = row as Record<string, unknown>;
-      return { ...value, healthy: Boolean(value.healthy) };
-    });
+    .orderBy(asc(serviceHealth.serviceName));
 }
 
-export function startSyncRun(accountId: string, trigger: string) {
+export async function startSyncRun(accountId: string, trigger: string) {
   const id = randomUUID();
-  getDatabase()
-    .sqlite.prepare(
-      "INSERT INTO sync_runs(id, account_id, trigger, status, started_at) VALUES (?, ?, ?, 'running', ?)",
-    )
-    .run(id, accountId, trigger, now());
+  await getDatabase().insert(syncRuns).values({
+    id,
+    accountId,
+    trigger,
+    status: "running",
+    startedAt: now(),
+  });
   return id;
 }
 
-export function completeSyncRun(
+export async function completeSyncRun(
   id: string,
   status: "completed" | "failed",
   projectCount: number,
   errorCode?: string,
 ) {
-  getDatabase()
-    .sqlite.prepare(
-      "UPDATE sync_runs SET status = ?, project_count = ?, error_code = ?, completed_at = ? WHERE id = ?",
-    )
-    .run(status, projectCount, errorCode ?? null, now(), id);
+  await getDatabase()
+    .update(syncRuns)
+    .set({
+      status,
+      projectCount,
+      errorCode: errorCode ?? null,
+      completedAt: now(),
+    })
+    .where(eq(syncRuns.id, id));
 }
 
-export function createAction(accountId: string, projectRef: string) {
+export async function createAction(accountId: string, projectRef: string) {
   const id = randomUUID();
-  getDatabase()
-    .sqlite.prepare(
-      `INSERT INTO actions(id, account_id, project_ref, action_type, status, started_at)
-       VALUES (?, ?, ?, 'restore', 'pending', ?)`,
-    )
-    .run(id, accountId, projectRef, now());
+  await getDatabase().insert(actions).values({
+    id,
+    accountId,
+    projectRef,
+    actionType: "restore",
+    status: "pending",
+    startedAt: now(),
+  });
   return id;
 }
 
-export function updateAction(
+export async function updateAction(
   id: string,
   status: string,
   upstreamStatus?: string,
   errorCode?: string,
   completed = false,
 ) {
-  getDatabase()
-    .sqlite.prepare(
-      `UPDATE actions SET status = ?, upstream_status = ?, error_code = ?,
-       completed_at = CASE WHEN ? THEN ? ELSE completed_at END WHERE id = ?`,
-    )
-    .run(
+  await getDatabase()
+    .update(actions)
+    .set({
       status,
-      upstreamStatus ?? null,
-      errorCode ?? null,
-      completed ? 1 : 0,
-      now(),
-      id,
-    );
+      upstreamStatus: upstreamStatus ?? null,
+      errorCode: errorCode ?? null,
+      completedAt: completed ? now() : undefined,
+    })
+    .where(eq(actions.id, id));
 }
 
-export function getAction(id: string) {
-  const row = getDatabase()
-    .sqlite.prepare(
-      `SELECT id, account_id AS accountId, project_ref AS projectRef, action_type AS actionType,
-       status, upstream_status AS upstreamStatus, error_code AS errorCode, started_at AS startedAt,
-       completed_at AS completedAt FROM actions WHERE id = ?`,
-    )
-    .get(id);
+export async function getAction(id: string) {
+  const [row] = await getDatabase()
+    .select()
+    .from(actions)
+    .where(eq(actions.id, id))
+    .limit(1);
   if (!row) throw new HarborError("ACTION_NOT_FOUND", "Action not found.", 404);
-  return row as {
-    id: string;
-    accountId: string;
-    projectRef: string;
-    actionType: string;
-    status: string;
-    upstreamStatus?: string;
-    errorCode?: string;
-    startedAt: string;
-    completedAt?: string;
-  };
+  return row;
 }
 
-export function listActivity() {
-  const sqlite = getDatabase().sqlite;
-  const actionRows = sqlite
-    .prepare(
-      `SELECT ac.id, ac.action_type AS type, ac.status, ac.project_ref AS projectRef,
-       a.label AS accountLabel, p.name AS projectName, ac.error_code AS errorCode,
-       ac.started_at AS startedAt, ac.completed_at AS completedAt
-       FROM actions ac JOIN accounts a ON a.id = ac.account_id
-       LEFT JOIN projects p ON p.account_id = ac.account_id AND p.project_ref = ac.project_ref`,
-    )
-    .all();
-  const syncRows = sqlite
-    .prepare(
-      `SELECT sr.id, 'refresh' AS type, sr.status, NULL AS projectRef,
-       a.label AS accountLabel, NULL AS projectName, sr.error_code AS errorCode,
-       sr.started_at AS startedAt, sr.completed_at AS completedAt
-       FROM sync_runs sr JOIN accounts a ON a.id = sr.account_id`,
-    )
-    .all();
-  return [...actionRows, ...syncRows].sort((a, b) =>
-    String((b as Record<string, unknown>).startedAt).localeCompare(
-      String((a as Record<string, unknown>).startedAt),
-    ),
+export async function listActivity() {
+  const [actionRows, refreshRows] = await Promise.all([
+    getDatabase()
+      .select({
+        id: actions.id,
+        type: actions.actionType,
+        status: actions.status,
+        projectRef: actions.projectRef,
+        accountLabel: accounts.label,
+        projectName: projects.name,
+        errorCode: actions.errorCode,
+        startedAt: actions.startedAt,
+        completedAt: actions.completedAt,
+      })
+      .from(actions)
+      .innerJoin(accounts, eq(accounts.id, actions.accountId))
+      .leftJoin(
+        projects,
+        and(
+          eq(projects.accountId, actions.accountId),
+          eq(projects.projectRef, actions.projectRef),
+        ),
+      ),
+    getDatabase()
+      .select({
+        id: syncRuns.id,
+        type: sql<string>`'refresh'`,
+        status: syncRuns.status,
+        projectRef: sql<null>`null`,
+        accountLabel: accounts.label,
+        projectName: sql<null>`null`,
+        errorCode: syncRuns.errorCode,
+        startedAt: syncRuns.startedAt,
+        completedAt: syncRuns.completedAt,
+      })
+      .from(syncRuns)
+      .innerJoin(accounts, eq(accounts.id, syncRuns.accountId)),
+  ]);
+  return [...actionRows, ...refreshRows].sort((a, b) =>
+    b.startedAt.localeCompare(a.startedAt),
   );
 }
 
-export function getSettings() {
-  const rows = getDatabase()
-    .sqlite.prepare("SELECT key, value FROM settings")
-    .all() as Array<{ key: string; value: string }>;
+export async function getSettings() {
+  const rows = await getDatabase()
+    .select({ key: settings.key, value: settings.value })
+    .from(settings);
   return Object.fromEntries(rows.map((row) => [row.key, row.value]));
 }
 
-export function updateSettings(values: Record<string, string>) {
-  const sqlite = getDatabase().sqlite;
-  const statement = sqlite.prepare(
-    `INSERT INTO settings(key, value, updated_at) VALUES (?, ?, ?)
-     ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`,
+export async function updateSettings(values: Record<string, string>) {
+  const timestamp = now();
+  await runBatch(
+    Object.entries(values).map(([key, value]) =>
+      getDatabase()
+        .insert(settings)
+        .values({ key, value, updatedAt: timestamp })
+        .onConflictDoUpdate({
+          target: settings.key,
+          set: { value, updatedAt: timestamp },
+        }),
+    ),
   );
-  sqlite.transaction(() => {
-    for (const [key, value] of Object.entries(values)) {
-      statement.run(key, value, now());
-    }
-  })();
   return getSettings();
+}
+
+export async function resetTestDatabase() {
+  if (
+    process.env.NODE_ENV !== "test" ||
+    process.env.ALLOW_DATABASE_RESET !== "1"
+  ) {
+    throw new Error("Test database reset is not authorized.");
+  }
+  const result = await getDatabase().execute<{ database: string }>(
+    sql`select current_database() as database`,
+  );
+  if (result.rows[0]?.database !== "harbor_test") {
+    throw new Error("Refusing to reset a database other than harbor_test.");
+  }
+  await getDatabase().execute(
+    sql`truncate table ${actions}, ${syncRuns}, ${serviceHealth}, ${projects}, ${organizations}, ${accounts}, ${vaultMetadata}, ${settings} cascade`,
+  );
+  await getDatabase()
+    .insert(settings)
+    .values([
+      { key: "refresh_interval_minutes", value: "5" },
+      { key: "idle_timeout_minutes", value: "30" },
+    ])
+    .onConflictDoNothing();
 }
