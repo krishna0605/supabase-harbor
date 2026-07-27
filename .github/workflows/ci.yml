@@ -35,4 +35,10 @@ jobs:
           TEST_DATABASE_URL_UNPOOLED: ${{ secrets.TEST_DATABASE_URL_UNPOOLED }}
           ALLOW_DATABASE_RESET: "1"
       - run: npm run build
+      - run: npx playwright install chromium
+        if: github.event_name == 'push'
+      - run: npm run test:e2e
+        if: github.event_name == 'push'
+        env:
+          DATABASE_URL: ${{ secrets.TEST_DATABASE_URL }}
       - run: npm audit --omit=dev --audit-level=high

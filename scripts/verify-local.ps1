@@ -22,6 +22,18 @@ try {
   }
   if (-not $health.data.ready) { throw "Health check failed." }
 
+  $page = Invoke-WebRequest -Uri $origin -UseBasicParsing
+  $csp = $page.Headers["Content-Security-Policy"]
+  if (-not $csp -or $csp -notmatch "script-src 'self' 'nonce-[^']+'") {
+    throw "Production CSP does not contain a per-response script nonce."
+  }
+  if ($csp -match "script-src[^;]*'unsafe-inline'") {
+    throw "Production CSP permits unsafe inline scripts."
+  }
+  if ($page.Headers["X-Frame-Options"] -ne "DENY") {
+    throw "Clickjacking protection is missing."
+  }
+
   $listeners = Get-NetTCPConnection -State Listen -LocalPort $port
   $unsafe = $listeners | Where-Object { $_.LocalAddress -notin @("127.0.0.1", "::1") }
   if ($unsafe) { throw "Harbor is listening on a non-loopback interface." }
@@ -33,7 +45,7 @@ try {
     if ($_.Exception.Response.StatusCode.value__ -ne 421) { throw }
   }
 
-  Write-Host "Loopback health, binding, and Host protection checks passed." -ForegroundColor Green
+  Write-Host "Loopback health, CSP, binding, and Host protection checks passed." -ForegroundColor Green
 } finally {
   if ($server -and -not $server.HasExited) {
     Stop-Process -Id $server.Id

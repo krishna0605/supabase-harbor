@@ -7,7 +7,7 @@ export function SecurityNote() {
         Local security
       </p>
       <h2 style={{ margin: "0", fontSize: 23, letterSpacing: "-0.025em" }}>
-        Your credentials stay in this Windows profile.
+        Your credentials stay encrypted outside the browser.
       </h2>
       <ul className="security-list">
         <li>
@@ -19,8 +19,8 @@ export function SecurityNote() {
         <li>
           <DatabaseZap size={19} />
           <span>
-            SQLite stores encrypted token envelopes and non-secret cached
-            metadata.
+            Neon stores encrypted token envelopes and non-secret cached
+            metadata; connection details remain server-only.
           </span>
         </li>
         <li>

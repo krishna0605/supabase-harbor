@@ -16,6 +16,7 @@
 - [ ] `npm run lint`
 - [ ] `npm run typecheck`
 - [ ] `npm run test`
+- [ ] `npm run test:integration` (when isolated Neon test credentials are available)
 - [ ] `npm run build`
 - [ ] `npm audit --omit=dev --audit-level=high`
 

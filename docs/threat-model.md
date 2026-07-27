@@ -17,6 +17,8 @@
 - HttpOnly, SameSite=Strict session cookie and separate CSRF token
 - In-memory-only sessions and DEK, cleared on lock and process shutdown
 - Loopback-only binding plus Host, Origin, CSP, and permission-policy checks
+- Per-response script nonces; development-only eval support is never enabled in a
+  production build
 - Structured log redaction for authorization, tokens, cookies, encryption fields, and
   request bodies
 - Pooled runtime and direct migration credentials kept in ignored server-only

@@ -10,13 +10,13 @@ without switching browser profiles.
 
 Supabase Harbor validates Personal Access Tokens against the official Management API,
 encrypts them with a local vault, caches organization and project metadata in Neon
-Postgres, and
-provides one carefully scoped upstream write operation: restoring a paused project.
+Postgres, and provides one carefully scoped upstream write operation: restoring a
+paused project.
 
 > [!IMPORTANT]
 > The published `0.1.x` line is the Windows local-first edition with Neon-backed
-> persistence. It is **not yet**
-> designed for Vercel, Railway, public internet exposure, or multiple Harbor users.
+> persistence. It is **not yet** designed for Vercel, Railway, public internet
+> exposure, or multiple Harbor users.
 > The planned cloud architecture still requires hosted authentication, Supabase
 > OAuth, multi-tenant authorization, and managed key storage.
 
@@ -177,6 +177,7 @@ npm run lint
 npm run typecheck
 npm run test
 npm run test:integration
+npm run test:e2e
 npm run build
 npm run verify
 ```

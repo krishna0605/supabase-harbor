@@ -6,9 +6,9 @@ body:
   - type: markdown
     attributes:
       value: |
-        Never include a real PAT, master password, vault database, cookie, or private
-        Supabase data. Report security vulnerabilities privately through GitHub's
-        Security tab.
+        Never include a real PAT, master password, Neon connection string, database
+        export, cookie, or private Supabase data. Report security vulnerabilities
+        privately through GitHub's Security tab.
 
   - type: input
     id: version

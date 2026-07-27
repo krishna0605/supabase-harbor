@@ -17,13 +17,22 @@ Requirements:
 - Node.js 24.x
 - npm
 - PowerShell 5.1 or newer
+- A Neon development project and isolated `harbor_test` database
 
 ```powershell
 git clone https://github.com/krishna0605/supabase-harbor.git
 Set-Location supabase-harbor
+Copy-Item .env.example .env.local
+# Replace only the production placeholders in .env.local.
+# Put isolated test connections in .env.test.local.
 npm ci
 npm run verify
 ```
+
+Never point `TEST_DATABASE_URL` at `neondb` or another database containing data.
+Integration cleanup refuses to run unless the database is named `harbor_test`.
+The verification command also runs the Chromium smoke suite against a loopback-only
+development server.
 
 Start development mode:
 
@@ -57,6 +66,8 @@ security:
 - Business behavior belongs in `src/features`.
 - Supabase HTTP details belong in `src/server/supabase`.
 - Persistence belongs in `src/server/database`.
+- Runtime queries use the pooled Neon connection; migrations use the direct
+  connection.
 - Client Components must not import `src/server`.
 - Raw upstream errors and credentials must never reach the browser.
 - Unknown Supabase statuses must fail safely as `unknown`.
