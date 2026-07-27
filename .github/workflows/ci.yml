@@ -13,6 +13,13 @@ jobs:
   verify:
     runs-on: windows-latest
     timeout-minutes: 20
+    env:
+      HARBOR_ORIGIN: http://127.0.0.1:47832
+      HARBOR_ALLOWED_GITHUB_IDS: "123456789"
+      HARBOR_MASTER_KEY: AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=
+      HARBOR_MASTER_KEY_VERSION: "1"
+      NEON_AUTH_BASE_URL: https://auth.invalid/neondb/auth
+      NEON_AUTH_COOKIE_SECRET: ci-only-cookie-secret-32-characters
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
