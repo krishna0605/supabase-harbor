@@ -8,7 +8,7 @@ type Context = { params: Promise<{ ref: string }> };
 
 export async function POST(request: Request, context: Context) {
   return route(async (currentRequest) => {
-    const { dek } = requireSession(currentRequest, {
+    const { dek } = await requireSession(currentRequest, {
       csrf: true,
       touch: true,
     });

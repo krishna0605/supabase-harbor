@@ -5,13 +5,13 @@ import { ok } from "@/server/http/responses";
 import { readJson, route } from "@/server/http/route-helpers";
 import { requireSession } from "@/server/session/session-store";
 
-export const GET = route((request) => {
-  requireSession(request);
-  return ok(listAccounts());
+export const GET = route(async (request) => {
+  await requireSession(request);
+  return ok(await listAccounts());
 });
 
 export const POST = route(async (request) => {
-  const { dek } = requireSession(request, { csrf: true, touch: true });
+  const { dek } = await requireSession(request, { csrf: true, touch: true });
   const input = await readJson(
     request,
     z.object({ label: z.string(), token: z.string() }),

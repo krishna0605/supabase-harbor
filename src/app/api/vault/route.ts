@@ -10,7 +10,7 @@ import {
 } from "@/server/session/session-store";
 
 export const DELETE = route(async (request) => {
-  requireSession(request, { csrf: true, touch: true });
+  await requireSession(request, { csrf: true, touch: true });
   const { confirmation } = await readJson(
     request,
     z.object({ confirmation: z.string() }),
@@ -22,7 +22,7 @@ export const DELETE = route(async (request) => {
       400,
     );
   }
-  resetVaultData();
+  await resetVaultData();
   clearAllSessions();
   return appendCookies(ok({ reset: true }), clearedSessionCookies());
 });

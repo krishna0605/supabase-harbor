@@ -17,7 +17,7 @@ const schema = z
   });
 
 export const POST = route(async (request) => {
-  if (isVaultInitialized()) {
+  if (await isVaultInitialized()) {
     throw new HarborError(
       "VAULT_EXISTS",
       "The vault is already configured.",
@@ -26,7 +26,7 @@ export const POST = route(async (request) => {
   }
   const input = await readJson(request, schema);
   const { dek, record } = await createVault(input.password);
-  insertVault(record);
+  await insertVault(record);
   const session = createSession(dek);
   dek.fill(0);
   return appendCookies(

@@ -12,11 +12,11 @@ import { supabaseManagement } from "@/server/supabase/client";
 import { normalizeProjectStatus } from "@/server/supabase/status";
 
 async function refreshAccount(
-  account: ReturnType<typeof listAccountSecrets>[number],
+  account: Awaited<ReturnType<typeof listAccountSecrets>>[number],
   dek: Buffer,
   trigger: string,
 ) {
-  const runId = startSyncRun(account.id, trigger);
+  const runId = await startSyncRun(account.id, trigger);
   const token = decryptToken(account.token, dek);
   try {
     const [organizations, projects] = await Promise.all([
@@ -24,7 +24,7 @@ async function refreshAccount(
       supabaseManagement.projects(token),
     ]);
     const orgMap = new Map(organizations.map((org) => [org.id, org]));
-    upsertAccountCache(
+    await upsertAccountCache(
       account.id,
       organizations.map((org) => ({
         id: org.id,
@@ -49,20 +49,20 @@ async function refreshAccount(
         createdAt: project.created_at ?? new Date().toISOString(),
       })),
     );
-    completeSyncRun(runId, "completed", projects.length);
+    await completeSyncRun(runId, "completed", projects.length);
     return { accountId: account.id, ok: true, projectCount: projects.length };
   } catch (error) {
     const code =
       error instanceof HarborError ? error.code : "UNEXPECTED_REFRESH_ERROR";
-    setAccountError(account.id, code);
-    completeSyncRun(runId, "failed", 0, code);
+    await setAccountError(account.id, code);
+    await completeSyncRun(runId, "failed", 0, code);
     return { accountId: account.id, ok: false, errorCode: code };
   }
 }
 
 export async function refreshAllAccounts(dek: Buffer, trigger = "manual") {
   const limit = pLimit(3);
-  const accounts = listAccountSecrets();
+  const accounts = await listAccountSecrets();
   return Promise.all(
     accounts.map((account) =>
       limit(() => refreshAccount(account, dek, trigger)),
@@ -75,7 +75,9 @@ export async function refreshOneAccount(
   dek: Buffer,
   trigger = "manual",
 ) {
-  const account = listAccountSecrets().find((item) => item.id === accountId);
+  const account = (await listAccountSecrets()).find(
+    (item) => item.id === accountId,
+  );
   if (!account) {
     throw new HarborError("ACCOUNT_NOT_FOUND", "Account not found.", 404);
   }

@@ -3,9 +3,9 @@ import { ok } from "@/server/http/responses";
 import { route } from "@/server/http/route-helpers";
 import { requireSession } from "@/server/session/session-store";
 
-export const GET = route((request) => {
-  requireSession(request);
-  const projects = cachedProjects();
+export const GET = route(async (request) => {
+  await requireSession(request);
+  const projects = await cachedProjects();
   return ok(projects, {
     stale: projects.some((project) =>
       Boolean((project as Record<string, unknown>).accountLastErrorCode),

@@ -18,7 +18,7 @@ export const POST = route(async (request) => {
     request,
     z.object({ password: z.string().min(1) }),
   );
-  const record = getVaultRecord();
+  const record = await getVaultRecord();
   if (!record) {
     throw new HarborError("VAULT_NOT_CONFIGURED", "Set up Harbor first.", 409);
   }

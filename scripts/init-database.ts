@@ -1,5 +1,4 @@
-import { closeDatabase, getDatabase } from "../src/server/database/client";
+import { checkDatabaseReadiness } from "../src/server/database/client";
 
-getDatabase().sqlite.prepare("SELECT 1").get();
-closeDatabase();
+await checkDatabaseReadiness();
 console.log("Harbor database is ready.");

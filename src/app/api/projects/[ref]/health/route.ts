@@ -8,7 +8,7 @@ type Context = { params: Promise<{ ref: string }> };
 
 export async function POST(request: Request, context: Context) {
   return route(async (currentRequest) => {
-    const { dek } = requireSession(currentRequest, { csrf: true });
+    const { dek } = await requireSession(currentRequest, { csrf: true });
     const { accountId } = await readJson(
       currentRequest,
       z.object({ accountId: z.string().uuid() }),

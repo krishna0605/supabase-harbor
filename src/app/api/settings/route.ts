@@ -4,13 +4,13 @@ import { ok } from "@/server/http/responses";
 import { readJson, route } from "@/server/http/route-helpers";
 import { requireSession } from "@/server/session/session-store";
 
-export const GET = route((request) => {
-  requireSession(request);
-  return ok(getSettings());
+export const GET = route(async (request) => {
+  await requireSession(request);
+  return ok(await getSettings());
 });
 
 export const PATCH = route(async (request) => {
-  requireSession(request, { csrf: true, touch: true });
+  await requireSession(request, { csrf: true, touch: true });
   const input = await readJson(
     request,
     z.object({
@@ -19,7 +19,7 @@ export const PATCH = route(async (request) => {
     }),
   );
   return ok(
-    updateSettings({
+    await updateSettings({
       ...(input.refreshIntervalMinutes
         ? {
             refresh_interval_minutes: String(input.refreshIntervalMinutes),

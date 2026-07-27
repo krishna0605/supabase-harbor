@@ -4,6 +4,6 @@ import { route } from "@/server/http/route-helpers";
 import { requireSession } from "@/server/session/session-store";
 
 export const POST = route(async (request) => {
-  const { dek } = requireSession(request, { csrf: true });
+  const { dek } = await requireSession(request, { csrf: true });
   return ok(await refreshAllAccounts(dek));
 });

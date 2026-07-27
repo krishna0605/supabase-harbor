@@ -36,8 +36,8 @@ function hashToken(token: string) {
   return createHash("sha256").update(token).digest("hex");
 }
 
-function idleTimeoutMs() {
-  const minutes = Number(getSettings().idle_timeout_minutes || "30");
+async function idleTimeoutMs() {
+  const minutes = Number((await getSettings()).idle_timeout_minutes || "30");
   return Math.max(5, Math.min(minutes, 240)) * 60_000;
 }
 
@@ -71,7 +71,7 @@ function cookieValue(request: Request, name: string) {
   return entry ? decodeURIComponent(entry.slice(name.length + 1)) : null;
 }
 
-export function requireSession(
+export async function requireSession(
   request: Request,
   options: { csrf?: boolean; touch?: boolean } = {},
 ) {
@@ -88,7 +88,7 @@ export function requireSession(
       401,
     );
   }
-  if (Date.now() - session.lastInteractionAt > idleTimeoutMs()) {
+  if (Date.now() - session.lastInteractionAt > (await idleTimeoutMs())) {
     clearAllSessions();
     throw new HarborError(
       "SESSION_EXPIRED",

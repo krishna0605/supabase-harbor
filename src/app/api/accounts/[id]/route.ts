@@ -11,7 +11,7 @@ type Context = { params: Promise<{ id: string }> };
 
 export async function PATCH(request: Request, context: Context) {
   return route(async (currentRequest) => {
-    const { dek } = requireSession(currentRequest, {
+    const { dek } = await requireSession(currentRequest, {
       csrf: true,
       touch: true,
     });
@@ -30,9 +30,9 @@ export async function PATCH(request: Request, context: Context) {
 
 export async function DELETE(request: Request, context: Context) {
   return route(async (currentRequest) => {
-    requireSession(currentRequest, { csrf: true, touch: true });
+    await requireSession(currentRequest, { csrf: true, touch: true });
     const { id } = await context.params;
-    removeAccount(id);
+    await removeAccount(id);
     return ok({ removed: true });
   })(request);
 }

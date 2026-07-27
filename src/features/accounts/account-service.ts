@@ -63,7 +63,7 @@ export async function connectAccount(
       createdAt: project.created_at ?? new Date().toISOString(),
     };
   });
-  const accountId = insertAccountWithCache({
+  const accountId = await insertAccountWithCache({
     label,
     userId: profile.id,
     primaryEmail:
@@ -81,7 +81,7 @@ export async function connectAccount(
     })),
     projects: projectCache,
   });
-  return listAccounts().find((account) => account.id === accountId);
+  return (await listAccounts()).find((account) => account.id === accountId);
 }
 
 export async function patchAccount(
@@ -92,23 +92,23 @@ export async function patchAccount(
   if (patch.token) {
     const token = patch.token.trim();
     await supabaseManagement.profile(token);
-    updateAccount(accountId, {
+    await updateAccount(accountId, {
       label: patch.label ? cleanLabel(patch.label) : undefined,
       enabled: patch.enabled,
       token: encryptToken(token, dek),
       fingerprint: fingerprintToken(token, dek),
     });
   } else {
-    updateAccount(accountId, {
+    await updateAccount(accountId, {
       label: patch.label ? cleanLabel(patch.label) : undefined,
       enabled: patch.enabled,
     });
   }
-  return listAccounts().find((account) => account.id === accountId);
+  return (await listAccounts()).find((account) => account.id === accountId);
 }
 
-export function revealAccountToken(accountId: string, dek: Buffer) {
-  const account = getAccountSecret(accountId);
+export async function revealAccountToken(accountId: string, dek: Buffer) {
+  const account = await getAccountSecret(accountId);
   if (!account.enabled) {
     throw new HarborError(
       "ACCOUNT_DISABLED",
@@ -119,7 +119,7 @@ export function revealAccountToken(accountId: string, dek: Buffer) {
   return decryptToken(account.token, dek);
 }
 
-export function removeAccount(accountId: string) {
-  getAccountSecret(accountId);
-  deleteAccount(accountId);
+export async function removeAccount(accountId: string) {
+  await getAccountSecret(accountId);
+  await deleteAccount(accountId);
 }

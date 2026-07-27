@@ -16,8 +16,8 @@ const schema = z
   });
 
 export const POST = route(async (request) => {
-  const { dek } = requireSession(request, { csrf: true, touch: true });
+  const { dek } = await requireSession(request, { csrf: true, touch: true });
   const { newPassword } = await readJson(request, schema);
-  updateVault(await rewrapDek(dek, newPassword));
+  await updateVault(await rewrapDek(dek, newPassword));
   return ok({ changed: true });
 });

@@ -13,7 +13,7 @@ import {
 import { supabaseManagement } from "@/server/supabase/client";
 import { normalizeProjectStatus } from "@/server/supabase/status";
 
-export function cachedProjects() {
+export async function cachedProjects() {
   return listProjects();
 }
 
@@ -22,14 +22,14 @@ export async function refreshProjectHealth(
   projectRef: string,
   dek: Buffer,
 ) {
-  getProject(accountId, projectRef);
-  const token = revealAccountToken(accountId, dek);
+  await getProject(accountId, projectRef);
+  const token = await revealAccountToken(accountId, dek);
   const services = await supabaseManagement.health(
     token,
     projectRef,
     accountId,
   );
-  return replaceServiceHealth(
+  return await replaceServiceHealth(
     accountId,
     projectRef,
     services.map((service) => ({
@@ -42,7 +42,7 @@ export async function refreshProjectHealth(
   );
 }
 
-export function cachedProjectHealth(accountId: string, projectRef: string) {
+export async function cachedProjectHealth(accountId: string, projectRef: string) {
   return listServiceHealth(accountId, projectRef);
 }
 
@@ -51,47 +51,47 @@ export async function restoreProject(
   projectRef: string,
   dek: Buffer,
 ) {
-  const project = getProject(accountId, projectRef);
-  if (project.raw_status !== "INACTIVE") {
+  const project = await getProject(accountId, projectRef);
+  if (project.rawStatus !== "INACTIVE") {
     throw new HarborError(
       "PROJECT_NOT_PAUSED",
       "Only paused projects can be restored.",
       409,
     );
   }
-  const actionId = createAction(accountId, projectRef);
-  const token = revealAccountToken(accountId, dek);
+  const actionId = await createAction(accountId, projectRef);
+  const token = await revealAccountToken(accountId, dek);
   try {
     await supabaseManagement.restore(token, projectRef, accountId);
-    updateAction(actionId, "accepted", "RESTORING");
-    updateProjectStatus(
+    await updateAction(actionId, "accepted", "RESTORING");
+    await updateProjectStatus(
       accountId,
       projectRef,
       "RESTORING",
       "transitioning",
       "unknown",
     );
-    return getAction(actionId);
+    return await getAction(actionId);
   } catch (error) {
     const code =
       error instanceof HarborError ? error.code : "RESTORE_REQUEST_FAILED";
-    updateAction(actionId, "failed", undefined, code, true);
+    await updateAction(actionId, "failed", undefined, code, true);
     throw error;
   }
 }
 
 export async function reconcileAction(actionId: string, dek: Buffer) {
-  const action = getAction(actionId);
+  const action = await getAction(actionId);
   if (action.status === "completed" || action.status === "failed")
     return action;
-  const token = revealAccountToken(action.accountId, dek);
+  const token = await revealAccountToken(action.accountId, dek);
   const project = await supabaseManagement.project(
     token,
     action.projectRef,
     action.accountId,
   );
   const normalized = normalizeProjectStatus(project.status);
-  updateProjectStatus(
+  await updateProjectStatus(
     action.accountId,
     action.projectRef,
     project.status,
@@ -99,11 +99,11 @@ export async function reconcileAction(actionId: string, dek: Buffer) {
     normalized.healthStatus,
   );
   if (normalized.lifecycleStatus === "active") {
-    updateAction(actionId, "completed", project.status, undefined, true);
+    await updateAction(actionId, "completed", project.status, undefined, true);
   } else if (normalized.lifecycleStatus === "failed") {
-    updateAction(actionId, "failed", project.status, project.status, true);
+    await updateAction(actionId, "failed", project.status, project.status, true);
   } else {
-    updateAction(actionId, "accepted", project.status);
+    await updateAction(actionId, "accepted", project.status);
   }
-  return getAction(actionId);
+  return await getAction(actionId);
 }
