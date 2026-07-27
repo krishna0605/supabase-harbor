@@ -268,9 +268,13 @@ export function previewProjectsAt(now: number): DashboardProject[] {
     accountLastSuccessfulSyncAt: at((seed.syncedHoursAgo ?? 1) * HOUR),
     accountLastErrorCode: seed.errorCode ?? null,
     keepaliveEnrolled: seed.pingedHoursAgo !== null,
+    keepaliveEnabled: seed.pingedHoursAgo !== null,
+    keepaliveLastAttemptAt:
+      seed.pingedHoursAgo === null ? null : at(seed.pingedHoursAgo * HOUR),
     keepaliveLastSuccessAt:
       seed.pingedHoursAgo === null ? null : at(seed.pingedHoursAgo * HOUR),
     keepaliveLastErrorCode: seed.errorCode ?? null,
+    keepaliveNeedsAttention: Boolean(seed.errorCode),
     services:
       seed.services === "ok"
         ? servicesOk(at)
