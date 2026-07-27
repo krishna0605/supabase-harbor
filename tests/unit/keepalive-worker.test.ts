@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { workerOptions } from "@/worker/sweep";
+import { runKeepaliveSweep, workerOptions } from "@/worker/sweep";
 
 describe("keepalive worker configuration", () => {
   it("uses bounded production defaults", () => {
@@ -17,5 +17,19 @@ describe("keepalive worker configuration", () => {
     expect(() =>
       workerOptions({ KEEPALIVE_SWEEP_TIMEOUT_MS: "999999" }),
     ).toThrow("integer from 30000 to 240000");
+  });
+
+  it("does not claim work after shutdown is requested", async () => {
+    await expect(
+      runKeepaliveSweep(
+        {
+          workerId: "shutdown-test",
+          claimLimit: 25,
+          concurrency: 5,
+          deadlineMs: 240_000,
+        },
+        () => true,
+      ),
+    ).resolves.toEqual({ enqueued: 0, claimed: 0, deleted: 0 });
   });
 });

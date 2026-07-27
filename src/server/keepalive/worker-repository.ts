@@ -169,13 +169,15 @@ export async function failKeepaliveJob(input: {
   errorCode: string;
   upstreamStatus: number | null;
   retryable: boolean;
+  retryAfterSeconds: number | null;
 }) {
   const result = await workerQuery<{ status: string }>(
     getDatabase().execute(
       sql`select harbor_internal.fail_keepalive_job(
         ${input.job.userId}, ${input.job.jobId}, ${input.job.leaseToken},
         ${input.workerId}, ${input.durationMs}, ${input.errorCode},
-        ${input.upstreamStatus}, ${input.retryable}
+        ${input.upstreamStatus}, ${input.retryable},
+        ${input.retryAfterSeconds}
       ) as status`,
     ),
   );

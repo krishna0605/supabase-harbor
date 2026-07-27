@@ -207,7 +207,13 @@ describe("tenant-isolated Neon persistence", () => {
       nextRunAt: new Date(Date.now() + 86_400_000).toISOString(),
     });
 
-    await expect(listKeepaliveEnrollments(context)).resolves.toHaveLength(1);
+    const publicEnrollments = await listKeepaliveEnrollments(context);
+    expect(publicEnrollments).toHaveLength(1);
+    expect(publicEnrollments[0]).not.toHaveProperty("credentialCiphertext");
+    expect(publicEnrollments[0]).not.toHaveProperty("credentialNonce");
+    expect(publicEnrollments[0]).not.toHaveProperty("credentialTag");
+    expect(publicEnrollments[0]).not.toHaveProperty("credentialFingerprint");
+    expect(publicEnrollments[0]).not.toHaveProperty("credentialKeyId");
     await expect(listKeepaliveEnrollments(otherContext)).resolves.toHaveLength(
       0,
     );
@@ -310,9 +316,16 @@ describe("tenant-isolated Neon persistence", () => {
         errorCode: "KEEPALIVE_TIMEOUT",
         upstreamStatus: null,
         retryable: true,
+        retryAfterSeconds: 7_200,
       }),
     ).resolves.toBe("retry_wait");
     expect((await listKeepaliveJobs(context))[0]?.status).toBe("retry_wait");
+    const retry = await getDatabase().execute<{ delayed: boolean }>(
+      sql`select available_at >= now() + interval '119 minutes' as delayed
+        from keepalive_jobs
+        where user_id = ${context.userId} and id = ${claimed[0].jobId}`,
+    );
+    expect(retry.rows[0]?.delayed).toBe(true);
     credential.ciphertext.fill(0);
     credential.nonce.fill(0);
     credential.tag.fill(0);

@@ -57,4 +57,22 @@ describe("keepalive heartbeat client", () => {
       pingProject("abcdefghijklmnopqrst", "sb_publishable_fixture"),
     ).rejects.toMatchObject({ code: "KEEPALIVE_KEY_REJECTED" });
   });
+
+  it("retains a bounded Retry-After signal for durable scheduling", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        new Response(null, {
+          status: 429,
+          headers: { "retry-after": "1800" },
+        }),
+      ),
+    );
+    await expect(
+      pingProject("abcdefghijklmnopqrst", "sb_publishable_fixture"),
+    ).rejects.toMatchObject({
+      code: "KEEPALIVE_RATE_LIMITED",
+      retryAfterMs: 1_800_000,
+    });
+  });
 });

@@ -38,11 +38,23 @@ function heartbeatError(response: Response) {
     );
   }
   if (response.status === 429) {
+    const retryAfter = response.headers.get("retry-after");
+    const seconds = retryAfter ? Number(retryAfter) : Number.NaN;
+    const dateDelay = retryAfter
+      ? Date.parse(retryAfter) - Date.now()
+      : Number.NaN;
+    const retryAfterMs = Number.isFinite(seconds)
+      ? Math.min(86_400_000, Math.max(0, seconds * 1000))
+      : Number.isFinite(dateDelay)
+        ? Math.min(86_400_000, Math.max(0, dateDelay))
+        : undefined;
     return new HarborError(
       "KEEPALIVE_RATE_LIMITED",
       "Supabase rate-limited the heartbeat request.",
       429,
       true,
+      undefined,
+      retryAfterMs,
     );
   }
   return new HarborError(

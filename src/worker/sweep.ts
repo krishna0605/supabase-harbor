@@ -83,12 +83,17 @@ function workerError(error: unknown) {
             : error.code === "KEEPALIVE_RPC_NOT_INSTALLED"
               ? 404
               : null,
+      retryAfterSeconds:
+        error.retryAfterMs === undefined
+          ? null
+          : Math.ceil(error.retryAfterMs / 1000),
     };
   }
   return {
     code: "KEEPALIVE_WORKER_ERROR",
     retryable: true,
     upstreamStatus: null,
+    retryAfterSeconds: null,
   };
 }
 
@@ -144,6 +149,7 @@ async function processJob(job: ClaimedKeepaliveJob, workerId: string) {
       errorCode: "KEEPALIVE_LEASE_LOST",
       upstreamStatus: null,
       retryable: true,
+      retryAfterSeconds: null,
     });
     return;
   }
@@ -212,6 +218,7 @@ async function processJob(job: ClaimedKeepaliveJob, workerId: string) {
       errorCode: normalized.code,
       upstreamStatus: normalized.upstreamStatus,
       retryable: normalized.retryable,
+      retryAfterSeconds: normalized.retryAfterSeconds,
     });
     logger.warn(
       {
@@ -243,7 +250,13 @@ async function processJob(job: ClaimedKeepaliveJob, workerId: string) {
   }
 }
 
-export async function runKeepaliveSweep(options = workerOptions()) {
+export async function runKeepaliveSweep(
+  options = workerOptions(),
+  shouldStop: () => boolean = () => false,
+) {
+  if (shouldStop()) {
+    return { enqueued: 0, claimed: 0, deleted: 0 };
+  }
   const deadline = Date.now() + options.deadlineMs;
   const enqueued = await enqueueDueKeepaliveJobs(
     Math.min(options.claimLimit * 4, 100),
@@ -257,12 +270,12 @@ export async function runKeepaliveSweep(options = workerOptions()) {
   await Promise.all(
     claimed.map((job) =>
       limit(async () => {
-        if (Date.now() >= deadline) return;
+        if (shouldStop() || Date.now() >= deadline) return;
         await processJob(job, options.workerId);
       }),
     ),
   );
   const cutoff = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString();
-  const deleted = await cleanupKeepaliveHistory(cutoff);
+  const deleted = shouldStop() ? 0 : await cleanupKeepaliveHistory(cutoff);
   return { enqueued, claimed: claimed.length, deleted };
 }

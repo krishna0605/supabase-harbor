@@ -11,7 +11,6 @@ import {
 } from "@/server/crypto/hosted-crypto";
 import {
   deleteKeepaliveEnrollment,
-  getKeepaliveEnrollment,
   getProject,
   listKeepaliveEnrollments,
   listKeepaliveAttempts,
@@ -30,6 +29,25 @@ function nextDailyRun(projectRef: string, from = Date.now()) {
   const digest = createHash("sha256").update(projectRef).digest();
   const jitterMs = digest.readUInt32BE(0) % (2 * 60 * 60 * 1000 + 1);
   return new Date(from + 24 * 60 * 60 * 1000 + jitterMs).toISOString();
+}
+
+async function publicEnrollment(
+  context: TenantContext,
+  accountId: string,
+  projectRef: string,
+) {
+  const enrollment = (await listKeepaliveEnrollments(context)).find(
+    (candidate) =>
+      candidate.accountId === accountId && candidate.projectRef === projectRef,
+  );
+  if (!enrollment) {
+    throw new HarborError(
+      "KEEPALIVE_NOT_ENROLLED",
+      "This project is not enrolled for heartbeat activity.",
+      404,
+    );
+  }
+  return enrollment;
 }
 
 export async function enrollKeepalive(
@@ -134,7 +152,7 @@ export async function enrollKeepalive(
     encrypted.nonce.fill(0);
     encrypted.tag.fill(0);
   }
-  return getKeepaliveEnrollment(context, input.accountId, input.projectRef);
+  return publicEnrollment(context, input.accountId, input.projectRef);
 }
 
 export async function getKeepaliveOverview(context: TenantContext) {
@@ -162,7 +180,7 @@ export async function toggleKeepalive(
 ) {
   await getProject(context, accountId, projectRef);
   await setKeepaliveEnabled(context, accountId, projectRef, enabled);
-  return getKeepaliveEnrollment(context, accountId, projectRef);
+  return publicEnrollment(context, accountId, projectRef);
 }
 
 export async function removeKeepalive(

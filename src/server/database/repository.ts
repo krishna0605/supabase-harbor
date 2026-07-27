@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import type { BatchItem } from "drizzle-orm/batch";
-import { and, asc, desc, eq, isNull, notInArray, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gte, isNull, notInArray, sql } from "drizzle-orm";
 import type {
   CipherEnvelope,
   UserVaultRecord,
@@ -1076,14 +1076,26 @@ export async function setKeepaliveEnabled(
   projectRef: string,
   enabled: boolean,
 ) {
-  const rows = await runTenantQuery<Array<{ accountId: string }>>(
+  const enrollment = await getKeepaliveEnrollment(
     context,
+    accountId,
+    projectRef,
+  );
+  if (!enrollment) {
+    throw new HarborError(
+      "KEEPALIVE_NOT_ENROLLED",
+      "This project is not enrolled for heartbeat activity.",
+      404,
+    );
+  }
+  const timestamp = now();
+  const queries: BatchItem<"pg">[] = [
     getDatabase()
       .update(keepaliveEnrollments)
       .set({
         enabled,
-        nextRunAt: enabled ? now() : undefined,
-        updatedAt: now(),
+        nextRunAt: enabled ? timestamp : undefined,
+        updatedAt: timestamp,
       })
       .where(
         and(
@@ -1091,21 +1103,17 @@ export async function setKeepaliveEnabled(
           eq(keepaliveEnrollments.accountId, accountId),
           eq(keepaliveEnrollments.projectRef, projectRef),
         ),
-      )
-      .returning({ accountId: keepaliveEnrollments.accountId }),
-  );
-  if (!rows[0]) {
-    throw new HarborError(
-      "KEEPALIVE_NOT_ENROLLED",
-      "This project is not enrolled for heartbeat activity.",
-      404,
-    );
-  }
+      ),
+  ];
   if (!enabled) {
-    await runTenantBatch(context, [
+    queries.push(
       getDatabase()
         .update(keepaliveJobs)
-        .set({ status: "cancelled", completedAt: now(), updatedAt: now() })
+        .set({
+          status: "cancelled",
+          completedAt: timestamp,
+          updatedAt: timestamp,
+        })
         .where(
           and(
             eq(keepaliveJobs.userId, context.userId),
@@ -1118,8 +1126,9 @@ export async function setKeepaliveEnabled(
             ]),
           ),
         ),
-    ]);
+    );
   }
+  await runTenantBatch(context, queries);
 }
 
 export async function deleteKeepaliveEnrollment(
@@ -1166,6 +1175,28 @@ export async function queueKeepaliveJob(
       409,
     );
   }
+  const recent = await runTenantQuery<Array<{ id: string }>>(
+    context,
+    getDatabase()
+      .select({ id: keepaliveJobs.id })
+      .from(keepaliveJobs)
+      .where(
+        and(
+          eq(keepaliveJobs.userId, context.userId),
+          eq(keepaliveJobs.accountId, accountId),
+          eq(keepaliveJobs.projectRef, projectRef),
+          eq(keepaliveJobs.trigger, "manual"),
+          gte(
+            keepaliveJobs.scheduledFor,
+            new Date(Date.now() - 10_000).toISOString(),
+          ),
+        ),
+      )
+      .orderBy(desc(keepaliveJobs.scheduledFor))
+      .limit(1),
+  );
+  if (recent[0]) return recent[0].id;
+
   const scheduledFor = new Date(
     Math.floor(Date.now() / 10_000) * 10_000,
   ).toISOString();

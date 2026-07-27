@@ -36,6 +36,13 @@
       "when": 1785182400000,
       "tag": "0004_keepalive_key_rotation",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1785186000000,
+      "tag": "0005_keepalive_retry_after",
+      "breakpoints": true
     }
   ]
 }

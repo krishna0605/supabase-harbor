@@ -11,7 +11,18 @@ async function main() {
 
   const { runKeepaliveSweep, workerOptions } =
     await import("../src/worker/sweep");
-  const result = await runKeepaliveSweep(workerOptions());
+  let shutdownRequested = false;
+  process.once("SIGTERM", () => {
+    shutdownRequested = true;
+  });
+  process.once("SIGINT", () => {
+    shutdownRequested = true;
+  });
+
+  const result = await runKeepaliveSweep(
+    workerOptions(),
+    () => shutdownRequested,
+  );
   console.log(
     JSON.stringify({
       event: "keepalive_sweep_complete",
