@@ -30,13 +30,12 @@ export type DashboardProject = {
   accountLastSuccessfulSyncAt?: string | null;
   accountLastErrorCode?: string | null;
 
-  /**
-   * Keepalive fields. Optional until the engine lands — the dashboard treats a
-   * missing value as "not enrolled", which is the truthful reading today.
-   */
-  keepaliveEnrolled?: boolean;
-  keepaliveLastSuccessAt?: string | null;
-  keepaliveLastErrorCode?: string | null;
+  keepaliveEnrolled: boolean;
+  keepaliveEnabled: boolean | null;
+  keepaliveLastAttemptAt: string | null;
+  keepaliveLastSuccessAt: string | null;
+  keepaliveLastErrorCode: string | null;
+  keepaliveNeedsAttention: boolean | null;
 
   /** Per-service health, populated by the health sweep. */
   services?: ProjectServiceHealth[];

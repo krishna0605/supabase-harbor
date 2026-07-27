@@ -3,6 +3,7 @@ import type { BatchItem } from "drizzle-orm/batch";
 import {
   and,
   asc,
+  desc,
   eq,
   isNull,
   notInArray,
@@ -16,6 +17,9 @@ import { getDatabase } from "@/server/database/client";
 import {
   accounts,
   actions,
+  keepaliveAttempts,
+  keepaliveEnrollments,
+  keepaliveJobs,
   organizations,
   projects,
   serviceHealth,
@@ -537,6 +541,12 @@ export async function listProjects(context: TenantContext) {
       accountEmail: string;
       accountLastSuccessfulSyncAt: string | null;
       accountLastErrorCode: string | null;
+      keepaliveEnrolled: boolean;
+      keepaliveEnabled: boolean | null;
+      keepaliveLastAttemptAt: string | null;
+      keepaliveLastSuccessAt: string | null;
+      keepaliveLastErrorCode: string | null;
+      keepaliveNeedsAttention: boolean | null;
     }>
   >(
     context,
@@ -559,6 +569,12 @@ export async function listProjects(context: TenantContext) {
         accountEmail: accounts.primaryEmail,
         accountLastSuccessfulSyncAt: accounts.lastSuccessfulSyncAt,
         accountLastErrorCode: accounts.lastErrorCode,
+        keepaliveEnrolled: sql<boolean>`${keepaliveEnrollments.userId} is not null`,
+        keepaliveEnabled: keepaliveEnrollments.enabled,
+        keepaliveLastAttemptAt: keepaliveEnrollments.lastAttemptAt,
+        keepaliveLastSuccessAt: keepaliveEnrollments.lastSuccessAt,
+        keepaliveLastErrorCode: keepaliveEnrollments.lastErrorCode,
+        keepaliveNeedsAttention: keepaliveEnrollments.needsAttention,
       })
       .from(projects)
       .innerJoin(
@@ -574,6 +590,14 @@ export async function listProjects(context: TenantContext) {
           eq(organizations.userId, projects.userId),
           eq(organizations.accountId, projects.accountId),
           eq(organizations.supabaseOrgId, projects.supabaseOrgId),
+        ),
+      )
+      .leftJoin(
+        keepaliveEnrollments,
+        and(
+          eq(keepaliveEnrollments.userId, projects.userId),
+          eq(keepaliveEnrollments.accountId, projects.accountId),
+          eq(keepaliveEnrollments.projectRef, projects.projectRef),
         ),
       )
       .where(
@@ -903,6 +927,391 @@ export async function listActivity(context: TenantContext) {
   );
 }
 
+export type KeepaliveEnrollmentRecord = {
+  accountId: string;
+  projectRef: string;
+  enabled: boolean;
+  credentialSource: "automatic" | "manual";
+  credentialType: "publishable" | "legacy_anon";
+  nextRunAt: string | null;
+  lastAttemptAt: string | null;
+  lastSuccessAt: string | null;
+  lastErrorCode: string | null;
+  consecutiveFailures: number;
+  needsAttention: boolean;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export async function getKeepaliveEnrollment(
+  context: TenantContext,
+  accountId: string,
+  projectRef: string,
+) {
+  const rows = await runTenantQuery<(typeof keepaliveEnrollments.$inferSelect)[]>(
+    context,
+    getDatabase()
+      .select()
+      .from(keepaliveEnrollments)
+      .where(
+        and(
+          eq(keepaliveEnrollments.userId, context.userId),
+          eq(keepaliveEnrollments.accountId, accountId),
+          eq(keepaliveEnrollments.projectRef, projectRef),
+        ),
+      )
+      .limit(1),
+  );
+  return rows[0] ?? null;
+}
+
+export async function listKeepaliveEnrollments(
+  context: TenantContext,
+): Promise<KeepaliveEnrollmentRecord[]> {
+  return runTenantQuery<KeepaliveEnrollmentRecord[]>(
+    context,
+    getDatabase()
+      .select({
+        accountId: keepaliveEnrollments.accountId,
+        projectRef: keepaliveEnrollments.projectRef,
+        enabled: keepaliveEnrollments.enabled,
+        credentialSource: keepaliveEnrollments.credentialSource,
+        credentialType: keepaliveEnrollments.credentialType,
+        nextRunAt: keepaliveEnrollments.nextRunAt,
+        lastAttemptAt: keepaliveEnrollments.lastAttemptAt,
+        lastSuccessAt: keepaliveEnrollments.lastSuccessAt,
+        lastErrorCode: keepaliveEnrollments.lastErrorCode,
+        consecutiveFailures: keepaliveEnrollments.consecutiveFailures,
+        needsAttention: keepaliveEnrollments.needsAttention,
+        createdAt: keepaliveEnrollments.createdAt,
+        updatedAt: keepaliveEnrollments.updatedAt,
+      })
+      .from(keepaliveEnrollments)
+      .where(eq(keepaliveEnrollments.userId, context.userId))
+      .orderBy(asc(keepaliveEnrollments.nextRunAt)),
+  );
+}
+
+export async function upsertKeepaliveEnrollment(input: {
+  context: TenantContext;
+  accountId: string;
+  projectRef: string;
+  credential: CipherEnvelope;
+  credentialFingerprint: string;
+  credentialType: "publishable" | "legacy_anon";
+  credentialSource: "automatic" | "manual";
+  credentialKeyId?: string | null;
+  verifiedAt: string;
+  nextRunAt: string;
+  validation?: {
+    durationMs: number;
+    upstreamStatus: number;
+  };
+}) {
+  const timestamp = now();
+  const validationJobId = input.validation ? randomUUID() : null;
+  const validationStartedAt = input.validation
+    ? new Date(
+        Date.parse(input.verifiedAt) - input.validation.durationMs,
+      ).toISOString()
+    : null;
+  const queries: BatchItem<"pg">[] = [
+    getDatabase()
+      .insert(keepaliveEnrollments)
+      .values({
+        userId: input.context.userId,
+        accountId: input.accountId,
+        projectRef: input.projectRef,
+        enabled: true,
+        credentialCiphertext: input.credential.ciphertext,
+        credentialNonce: input.credential.nonce,
+        credentialTag: input.credential.tag,
+        credentialFingerprint: input.credentialFingerprint,
+        credentialType: input.credentialType,
+        credentialSource: input.credentialSource,
+        credentialKeyId: input.credentialKeyId,
+        nextRunAt: input.nextRunAt,
+        lastAttemptAt: input.verifiedAt,
+        lastSuccessAt: input.verifiedAt,
+        lastErrorCode: null,
+        consecutiveFailures: 0,
+        needsAttention: false,
+        createdAt: timestamp,
+        updatedAt: timestamp,
+      })
+      .onConflictDoUpdate({
+        target: [
+          keepaliveEnrollments.userId,
+          keepaliveEnrollments.accountId,
+          keepaliveEnrollments.projectRef,
+        ],
+        set: {
+          enabled: true,
+          credentialCiphertext: input.credential.ciphertext,
+          credentialNonce: input.credential.nonce,
+          credentialTag: input.credential.tag,
+          credentialFingerprint: input.credentialFingerprint,
+          credentialType: input.credentialType,
+          credentialSource: input.credentialSource,
+          credentialKeyId: input.credentialKeyId,
+          nextRunAt: input.nextRunAt,
+          lastAttemptAt: input.verifiedAt,
+          lastSuccessAt: input.verifiedAt,
+          lastErrorCode: null,
+          consecutiveFailures: 0,
+          needsAttention: false,
+          updatedAt: timestamp,
+        },
+      }),
+  ];
+  if (input.validation && validationJobId && validationStartedAt) {
+    queries.push(
+      getDatabase().insert(keepaliveJobs).values({
+        userId: input.context.userId,
+        id: validationJobId,
+        accountId: input.accountId,
+        projectRef: input.projectRef,
+        trigger: "enrollment_validation",
+        status: "succeeded",
+        scheduledFor: input.verifiedAt,
+        availableAt: input.verifiedAt,
+        attemptCount: 1,
+        maxAttempts: 1,
+        lastUpstreamStatus: input.validation.upstreamStatus,
+        startedAt: validationStartedAt,
+        completedAt: input.verifiedAt,
+      }),
+      getDatabase().insert(keepaliveAttempts).values({
+        userId: input.context.userId,
+        id: randomUUID(),
+        jobId: validationJobId,
+        accountId: input.accountId,
+        projectRef: input.projectRef,
+        attemptNumber: 1,
+        status: "succeeded",
+        upstreamStatus: input.validation.upstreamStatus,
+        workerId: "web-enrollment",
+        durationMs: input.validation.durationMs,
+        startedAt: validationStartedAt,
+        completedAt: input.verifiedAt,
+      }),
+    );
+  }
+  await runTenantBatch(input.context, queries);
+}
+
+export async function setKeepaliveEnabled(
+  context: TenantContext,
+  accountId: string,
+  projectRef: string,
+  enabled: boolean,
+) {
+  const rows = await runTenantQuery<Array<{ accountId: string }>>(
+    context,
+    getDatabase()
+      .update(keepaliveEnrollments)
+      .set({
+        enabled,
+        nextRunAt: enabled ? now() : undefined,
+        updatedAt: now(),
+      })
+      .where(
+        and(
+          eq(keepaliveEnrollments.userId, context.userId),
+          eq(keepaliveEnrollments.accountId, accountId),
+          eq(keepaliveEnrollments.projectRef, projectRef),
+        ),
+      )
+      .returning({ accountId: keepaliveEnrollments.accountId }),
+  );
+  if (!rows[0]) {
+    throw new HarborError(
+      "KEEPALIVE_NOT_ENROLLED",
+      "This project is not enrolled for heartbeat activity.",
+      404,
+    );
+  }
+  if (!enabled) {
+    await runTenantBatch(context, [
+      getDatabase()
+        .update(keepaliveJobs)
+        .set({ status: "cancelled", completedAt: now(), updatedAt: now() })
+        .where(
+          and(
+            eq(keepaliveJobs.userId, context.userId),
+            eq(keepaliveJobs.accountId, accountId),
+            eq(keepaliveJobs.projectRef, projectRef),
+            notInArray(keepaliveJobs.status, [
+              "succeeded",
+              "failed",
+              "cancelled",
+            ]),
+          ),
+        ),
+    ]);
+  }
+}
+
+export async function deleteKeepaliveEnrollment(
+  context: TenantContext,
+  accountId: string,
+  projectRef: string,
+) {
+  const rows = await runTenantQuery<Array<{ accountId: string }>>(
+    context,
+    getDatabase()
+      .delete(keepaliveEnrollments)
+      .where(
+        and(
+          eq(keepaliveEnrollments.userId, context.userId),
+          eq(keepaliveEnrollments.accountId, accountId),
+          eq(keepaliveEnrollments.projectRef, projectRef),
+        ),
+      )
+      .returning({ accountId: keepaliveEnrollments.accountId }),
+  );
+  if (!rows[0]) {
+    throw new HarborError(
+      "KEEPALIVE_NOT_ENROLLED",
+      "This project is not enrolled for heartbeat activity.",
+      404,
+    );
+  }
+}
+
+export async function queueKeepaliveJob(
+  context: TenantContext,
+  accountId: string,
+  projectRef: string,
+) {
+  const enrollment = await getKeepaliveEnrollment(
+    context,
+    accountId,
+    projectRef,
+  );
+  if (!enrollment?.enabled) {
+    throw new HarborError(
+      "KEEPALIVE_NOT_ENABLED",
+      "Enable heartbeat activity before queuing a run.",
+      409,
+    );
+  }
+  const scheduledFor = new Date(
+    Math.floor(Date.now() / 10_000) * 10_000,
+  ).toISOString();
+  const id = randomUUID();
+  await runTenantBatch(context, [
+    getDatabase()
+      .insert(keepaliveJobs)
+      .values({
+        userId: context.userId,
+        id,
+        accountId,
+        projectRef,
+        trigger: "manual",
+        status: "pending",
+        scheduledFor,
+        availableAt: now(),
+      })
+      .onConflictDoNothing(),
+  ]);
+  const rows = await runTenantQuery<Array<{ id: string }>>(
+    context,
+    getDatabase()
+      .select({ id: keepaliveJobs.id })
+      .from(keepaliveJobs)
+      .where(
+        and(
+          eq(keepaliveJobs.userId, context.userId),
+          eq(keepaliveJobs.accountId, accountId),
+          eq(keepaliveJobs.projectRef, projectRef),
+          eq(keepaliveJobs.trigger, "manual"),
+          eq(keepaliveJobs.scheduledFor, scheduledFor),
+        ),
+      )
+      .limit(1),
+  );
+  return rows[0]?.id ?? id;
+}
+
+export async function listKeepaliveJobs(
+  context: TenantContext,
+  limit = 50,
+) {
+  return runTenantQuery<
+    Array<{
+      id: string;
+      accountId: string;
+      projectRef: string;
+      trigger: string;
+      status: string;
+      scheduledFor: string;
+      attemptCount: number;
+      lastErrorCode: string | null;
+      completedAt: string | null;
+    }>
+  >(
+    context,
+    getDatabase()
+      .select({
+        id: keepaliveJobs.id,
+        accountId: keepaliveJobs.accountId,
+        projectRef: keepaliveJobs.projectRef,
+        trigger: keepaliveJobs.trigger,
+        status: keepaliveJobs.status,
+        scheduledFor: keepaliveJobs.scheduledFor,
+        attemptCount: keepaliveJobs.attemptCount,
+        lastErrorCode: keepaliveJobs.lastErrorCode,
+        completedAt: keepaliveJobs.completedAt,
+      })
+      .from(keepaliveJobs)
+      .where(eq(keepaliveJobs.userId, context.userId))
+      .orderBy(desc(keepaliveJobs.scheduledFor))
+      .limit(Math.max(1, Math.min(limit, 100))),
+  );
+}
+
+export async function listKeepaliveAttempts(
+  context: TenantContext,
+  limit = 50,
+) {
+  return runTenantQuery<
+    Array<{
+      id: string;
+      jobId: string;
+      accountId: string;
+      projectRef: string;
+      attemptNumber: number;
+      status: string;
+      errorCode: string | null;
+      upstreamStatus: number | null;
+      durationMs: number;
+      startedAt: string;
+      completedAt: string;
+    }>
+  >(
+    context,
+    getDatabase()
+      .select({
+        id: keepaliveAttempts.id,
+        jobId: keepaliveAttempts.jobId,
+        accountId: keepaliveAttempts.accountId,
+        projectRef: keepaliveAttempts.projectRef,
+        attemptNumber: keepaliveAttempts.attemptNumber,
+        status: keepaliveAttempts.status,
+        errorCode: keepaliveAttempts.errorCode,
+        upstreamStatus: keepaliveAttempts.upstreamStatus,
+        durationMs: keepaliveAttempts.durationMs,
+        startedAt: keepaliveAttempts.startedAt,
+        completedAt: keepaliveAttempts.completedAt,
+      })
+      .from(keepaliveAttempts)
+      .where(eq(keepaliveAttempts.userId, context.userId))
+      .orderBy(desc(keepaliveAttempts.startedAt))
+      .limit(Math.max(1, Math.min(limit, 100))),
+  );
+}
+
 export async function getSettings(context: TenantContext) {
   const rows = await runTenantQuery<Array<{ key: string; value: string }>>(
     context,
@@ -981,7 +1390,7 @@ export async function resetTestDatabase() {
     throw new Error("Refusing to reset a database other than harbor_test.");
   }
   await getDatabase().execute(
-    sql`truncate table ${actions}, ${syncRuns}, ${serviceHealth}, ${projects}, ${organizations}, ${accounts}, ${userVaults}, ${settings} cascade`,
+    sql`truncate table ${keepaliveAttempts}, ${keepaliveJobs}, ${keepaliveEnrollments}, ${actions}, ${syncRuns}, ${serviceHealth}, ${projects}, ${organizations}, ${accounts}, ${userVaults}, ${settings} cascade`,
   );
   await getDatabase()
     .insert(settings)
