@@ -67,3 +67,7 @@ npm run test:integration
 Do not edit production tables manually. Use a Neon branch or point-in-time restore to
 inspect and recover a previous database state. Resetting the Harbor vault deletes
 Harbor rows only and never invokes a Supabase project deletion endpoint.
+
+## Applied production migrations
+
+- [2026-07-27 production baseline](migrations/2026-07-27-neon-baseline.md)
