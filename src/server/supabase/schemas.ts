@@ -57,7 +57,26 @@ export const serviceHealthSchema = z.array(
     .passthrough(),
 );
 
+export const projectApiKeySchema = z
+  .object({
+    id: z.string().optional(),
+    api_key: z.string().optional(),
+    type: z.string(),
+    name: z.string().optional(),
+    secret_jwt_template: z
+      .object({
+        role: z.string().optional(),
+      })
+      .passthrough()
+      .nullable()
+      .optional(),
+  })
+  .passthrough();
+
+export const projectApiKeysSchema = z.array(projectApiKeySchema);
+
 export type SupabaseProfile = z.infer<typeof profileSchema>;
 export type SupabaseOrganization = z.infer<typeof organizationSchema>;
 export type SupabaseProject = z.infer<typeof projectSchema>;
 export type SupabaseServiceHealth = z.infer<typeof serviceHealthSchema>[number];
+export type SupabaseProjectApiKey = z.infer<typeof projectApiKeySchema>;

@@ -24,12 +24,13 @@ insert into public.harbor_heartbeat (id) values (1)
 alter table public.harbor_heartbeat enable row level security;
 -- No policies by design: the table is unreachable to anon. Only the
 -- definer function below may touch it.
+revoke all on table public.harbor_heartbeat from public, anon, authenticated;
 
 create or replace function public.harbor_ping()
 returns timestamptz
 language sql
 security definer
-set search_path = public
+set search_path = ''
 as $$
   update public.harbor_heartbeat
      set pinged_at  = now(),
@@ -39,7 +40,13 @@ as $$
 $$;
 
 revoke all on function public.harbor_ping() from public;
+revoke all on function public.harbor_ping() from authenticated;
 grant execute on function public.harbor_ping() to anon;`;
+
+export const CLEANUP_SQL = `-- Supabase Harbor · optional keepalive cleanup
+revoke all on function public.harbor_ping() from public, anon, authenticated;
+drop function if exists public.harbor_ping();
+drop table if exists public.harbor_heartbeat;`;
 
 /** Deep link to a specific project's SQL editor. */
 export function sqlEditorUrl(projectRef: string) {

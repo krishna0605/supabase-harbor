@@ -2,6 +2,7 @@ import { HarborError } from "@/shared/errors/harbor-error";
 import {
   organizationsSchema,
   profileSchema,
+  projectApiKeysSchema,
   projectSchema,
   projectsSchema,
   serviceHealthSchema,
@@ -187,6 +188,16 @@ export const supabaseManagement = {
       serviceHealthSchema,
       {
         timeoutMs: 10_000,
+        context: { accountId, projectRef: ref },
+      },
+    );
+  },
+  projectApiKeys(token: string, ref: string, accountId?: string) {
+    return request(
+      token,
+      `/v1/projects/${encodeURIComponent(ref)}/api-keys?reveal=true`,
+      projectApiKeysSchema,
+      {
         context: { accountId, projectRef: ref },
       },
     );
