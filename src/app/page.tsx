@@ -8,18 +8,15 @@ import { api } from "@/shared/api-client";
 export default function Home() {
   const router = useRouter();
   useEffect(() => {
-    api<{ state: "uninitialized" | "locked" | "unlocked" }>("/api/vault/status")
-      .then(({ state }) =>
+    api("/api/me")
+      .then(() => router.replace("/dashboard"))
+      .catch((error: Error & { code?: string }) =>
         router.replace(
-          state === "uninitialized"
-            ? "/setup"
-            : state === "locked"
-              ? "/unlock"
-              : "/dashboard",
+          error.code === "ACCESS_NOT_ALLOWED" ? "/access-denied" : "/login",
         ),
-      )
-      .catch(() => router.replace("/unlock"));
+      );
   }, [router]);
+
   return (
     <div className="auth-page" role="status">
       <div style={{ textAlign: "center", color: "var(--muted)" }}>

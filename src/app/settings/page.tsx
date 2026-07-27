@@ -3,38 +3,28 @@
 import { FormEvent, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import {
-  Database,
-  KeyRound,
-  LockKeyhole,
-  RefreshCw,
-  ShieldAlert,
-} from "lucide-react";
+import { Database, KeyRound, RefreshCw, ShieldAlert } from "lucide-react";
 import { AppShell } from "@/components/layout/app-shell";
 import { api } from "@/shared/api-client";
 
 type Settings = {
   refresh_interval_minutes: string;
-  idle_timeout_minutes: string;
 };
 
 export default function SettingsPage() {
   const router = useRouter();
   const queryClient = useQueryClient();
-  const [resetText, setResetText] = useState("");
+  const [confirmation, setConfirmation] = useState("");
   const [message, setMessage] = useState("");
   const settings = useQuery({
     queryKey: ["settings"],
     queryFn: () => api<Settings>("/api/settings"),
   });
   const save = useMutation({
-    mutationFn: (value: {
-      refreshIntervalMinutes: number;
-      idleTimeoutMinutes: number;
-    }) =>
+    mutationFn: (refreshIntervalMinutes: number) =>
       api("/api/settings", {
         method: "PATCH",
-        body: JSON.stringify(value),
+        body: JSON.stringify({ refreshIntervalMinutes }),
         interaction: true,
       }),
     onSuccess: () => {
@@ -42,49 +32,24 @@ export default function SettingsPage() {
       queryClient.invalidateQueries({ queryKey: ["settings"] });
     },
   });
-  const password = useMutation({
-    mutationFn: (value: { newPassword: string; confirmation: string }) =>
-      api("/api/vault/change-password", {
-        method: "POST",
-        body: JSON.stringify(value),
+  const removeData = useMutation({
+    mutationFn: () =>
+      api("/api/me", {
+        method: "DELETE",
+        body: JSON.stringify({ confirmation }),
         interaction: true,
       }),
-    onSuccess: () => setMessage("Master password changed."),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries();
+      router.replace("/accounts");
+    },
   });
-
-  async function lock() {
-    await api("/api/vault/lock", { method: "POST", interaction: true });
-    router.replace("/unlock");
-  }
-
-  async function reset() {
-    await api("/api/vault", {
-      method: "DELETE",
-      body: JSON.stringify({ confirmation: resetText }),
-      interaction: true,
-    });
-    router.replace("/setup");
-  }
 
   function submitPreferences(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setMessage("");
     const form = new FormData(event.currentTarget);
-    save.mutate({
-      refreshIntervalMinutes: Number(form.get("refresh")),
-      idleTimeoutMinutes: Number(form.get("idle")),
-    });
-  }
-
-  function submitPassword(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    setMessage("");
-    const form = new FormData(event.currentTarget);
-    password.mutate({
-      newPassword: String(form.get("password")),
-      confirmation: String(form.get("confirmation")),
-    });
-    event.currentTarget.reset();
+    save.mutate(Number(form.get("refresh")));
   }
 
   return (
@@ -93,8 +58,7 @@ export default function SettingsPage() {
         <div>
           <h1 className="page-title">Settings</h1>
           <p className="page-copy">
-            Tune local behavior, rotate the vault password, or inspect data
-            locations.
+            Tune dashboard refresh and manage only your Harbor tenant.
           </p>
         </div>
       </header>
@@ -110,11 +74,10 @@ export default function SettingsPage() {
               size={16}
               style={{ display: "inline", marginRight: 8 }}
             />
-            Refresh and locking
+            Dashboard refresh
           </h2>
           <p>
-            Background refresh only runs while a dashboard tab is visible and
-            never extends the idle timeout.
+            Automatic refresh runs only while a dashboard tab is visible.
           </p>
           {settings.data ? (
             <form className="setting-form" onSubmit={submitPreferences}>
@@ -133,107 +96,37 @@ export default function SettingsPage() {
                   <option value="60">60 minutes</option>
                 </select>
               </div>
-              <div className="field">
-                <label htmlFor="idle">Lock after inactivity</label>
-                <select
-                  className="select"
-                  id="idle"
-                  name="idle"
-                  defaultValue={settings.data.idle_timeout_minutes}
-                >
-                  <option value="15">15 minutes</option>
-                  <option value="30">30 minutes</option>
-                  <option value="60">1 hour</option>
-                  <option value="120">2 hours</option>
-                </select>
-              </div>
               <button
                 className="button button-secondary"
                 disabled={save.isPending}
               >
-                {save.isPending ? "Saving…" : "Save preferences"}
+                {save.isPending ? "Saving…" : "Save preference"}
               </button>
             </form>
-          ) : null}
-          {save.error ? (
-            <p className="inline-error" style={{ marginTop: 12 }}>
-              {save.error.message}
-            </p>
           ) : null}
         </div>
 
         <div className="setting-section">
           <h2>
             <KeyRound size={16} style={{ display: "inline", marginRight: 8 }} />
-            Master password
+            Encrypted credentials
           </h2>
           <p>
-            Changing the password rewraps the vault key; connected tokens do not
-            need to be re-encrypted.
+            Each user has an independent data-encryption key. Supabase tokens
+            are decrypted only for the current server operation and are never
+            returned to the browser.
           </p>
-          <form className="setting-form" onSubmit={submitPassword}>
-            <div className="field">
-              <label htmlFor="password">New password</label>
-              <input
-                className="input"
-                id="password"
-                name="password"
-                type="password"
-                minLength={12}
-                required
-              />
-            </div>
-            <div className="field">
-              <label htmlFor="confirmation">Confirm password</label>
-              <input
-                className="input"
-                id="confirmation"
-                name="confirmation"
-                type="password"
-                minLength={12}
-                required
-              />
-            </div>
-            <button
-              className="button button-secondary"
-              disabled={password.isPending}
-            >
-              {password.isPending ? "Changing…" : "Change password"}
-            </button>
-          </form>
-          {password.error ? (
-            <p className="inline-error" style={{ marginTop: 12 }}>
-              {password.error.message}
-            </p>
-          ) : null}
-        </div>
-
-        <div className="setting-section">
-          <h2>
-            <LockKeyhole
-              size={16}
-              style={{ display: "inline", marginRight: 8 }}
-            />
-            Lock now
-          </h2>
-          <p>
-            Clear active sessions and best-effort wipe the in-memory vault key
-            immediately.
-          </p>
-          <button className="button button-secondary" onClick={lock}>
-            Lock Harbor
-          </button>
         </div>
 
         <div className="setting-section">
           <h2>
             <Database size={16} style={{ display: "inline", marginRight: 8 }} />
-            Data locations
+            Hosted storage
           </h2>
           <p>
-            Database: <code>Connected Neon Postgres database</code>
-            <br />
-            Logs: <code>%LOCALAPPDATA%\SupabaseHarbor\logs\harbor.log</code>
+            Neon Postgres stores tenant-isolated encrypted credentials,
+            project cache, preferences, and activity. The hosting operator
+            controls the server encryption root key.
           </p>
         </div>
 
@@ -243,30 +136,38 @@ export default function SettingsPage() {
               size={16}
               style={{ display: "inline", marginRight: 8 }}
             />
-            Reset Harbor data
+            Delete my Harbor data
           </h2>
           <p>
-            Deletes Harbor’s encrypted tokens, project cache, settings, and
-            activity from the connected Neon database. It does not delete
-            anything in Supabase.
+            Deletes only your encrypted tokens, cached projects, preferences,
+            and Harbor activity. It never deletes or changes a Supabase
+            project.
           </p>
           <div className="setting-form">
             <div className="field">
-              <label htmlFor="reset">Type RESET HARBOR</label>
+              <label htmlFor="delete-data">
+                Type DELETE MY HARBOR DATA
+              </label>
               <input
                 className="input"
-                id="reset"
-                value={resetText}
-                onChange={(event) => setResetText(event.target.value)}
+                id="delete-data"
+                value={confirmation}
+                onChange={(event) => setConfirmation(event.target.value)}
               />
             </div>
             <button
               className="button button-danger"
-              disabled={resetText !== "RESET HARBOR"}
-              onClick={reset}
+              disabled={
+                confirmation !== "DELETE MY HARBOR DATA" ||
+                removeData.isPending
+              }
+              onClick={() => removeData.mutate()}
             >
-              Reset local vault
+              {removeData.isPending ? "Deleting…" : "Delete my Harbor data"}
             </button>
+            {removeData.error ? (
+              <p className="inline-error">{removeData.error.message}</p>
+            ) : null}
           </div>
         </div>
       </section>
