@@ -37,7 +37,7 @@ SECURITY DEFINER
 SET search_path = ''
 AS $function$
 DECLARE
-  current_time timestamp with time zone := clock_timestamp();
+  v_now timestamp with time zone := clock_timestamp();
   current_bucket timestamp with time zone;
   current_hits integer;
   bucket_end timestamp with time zone;
@@ -56,7 +56,7 @@ BEGIN
   END IF;
 
   current_bucket := to_timestamp(
-    floor(extract(epoch FROM current_time) / p_window_seconds)
+    floor(extract(epoch FROM v_now) / p_window_seconds)
       * p_window_seconds
   );
   bucket_end := current_bucket + make_interval(secs => p_window_seconds);
@@ -75,7 +75,7 @@ BEGIN
   RETURN QUERY SELECT
     current_hits <= p_limit,
     greatest(p_limit - current_hits, 0),
-    greatest(ceil(extract(epoch FROM bucket_end - current_time))::integer, 1);
+    greatest(ceil(extract(epoch FROM bucket_end - v_now))::integer, 1);
 END
 $function$;
 --> statement-breakpoint
@@ -100,7 +100,7 @@ BEGIN
 END
 $function$;
 --> statement-breakpoint
-GRANT USAGE ON SCHEMA harbor_security TO harbor_runtime;
+GRANT USAGE ON SCHEMA harbor_security TO harbor_runtime, harbor_worker;
 --> statement-breakpoint
 REVOKE ALL ON FUNCTION
   harbor_security.consume_rate_limit(text, text, integer, integer),

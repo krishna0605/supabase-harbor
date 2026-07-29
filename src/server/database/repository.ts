@@ -1425,6 +1425,10 @@ export async function resetTestDatabase() {
   await getDatabase().execute(
     sql`truncate table ${keepaliveAttempts}, ${keepaliveJobs}, ${keepaliveEnrollments}, ${actions}, ${syncRuns}, ${serviceHealth}, ${projects}, ${organizations}, ${accounts}, ${userVaults}, ${settings} cascade`,
   );
+  await getDatabase().execute(
+    sql`delete from harbor_security.rate_limit_buckets`,
+  );
+  await getDatabase().execute(sql`delete from harbor_internal.worker_sweeps`);
   await getDatabase()
     .insert(settings)
     .values([

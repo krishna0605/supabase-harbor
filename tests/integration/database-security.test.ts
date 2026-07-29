@@ -13,14 +13,18 @@ import {
 import { getDatabase } from "@/server/database/client";
 import {
   claimKeepaliveJobs,
+  cleanupRateLimits,
   enqueueDueKeepaliveJobs,
   failKeepaliveJob,
+  finishWorkerSweep,
+  startWorkerSweep,
 } from "@/server/keepalive/worker-repository";
 import {
   deleteAccount,
   ensureDefaultSettings,
   getAccountSecret,
   getKeepaliveEnrollment,
+  getKeepaliveWorkerStatus,
   getSettings,
   insertAccountWithCache,
   insertUserVault,
@@ -35,6 +39,7 @@ import {
   upsertKeepaliveEnrollment,
   upsertAccountCache,
 } from "@/server/database/repository";
+import { enforceRateLimit } from "@/server/security/rate-limit";
 import type { TenantContext } from "@/shared/types/auth";
 
 const plaintext = "sbp_plaintext_leak_sentinel_0123456789";
@@ -360,6 +365,103 @@ describe("tenant-isolated Neon persistence", () => {
       ) as exposed`,
     );
     expect(privileges.rows[0]?.exposed).toBe(false);
+  });
+
+  it("atomically enforces rate limits without storing raw actors", async () => {
+    process.env.HARBOR_RATE_LIMIT_KEY = randomBytes(32).toString("base64");
+    const scope = `integration-${randomUUID().slice(0, 8)}`;
+    const actor = `raw-actor-${randomUUID()}`;
+    const policy = { scope, limit: 2, windowSeconds: 60 };
+
+    await expect(enforceRateLimit(policy, actor)).resolves.toMatchObject({
+      remaining: 1,
+    });
+    await expect(enforceRateLimit(policy, actor)).resolves.toMatchObject({
+      remaining: 0,
+    });
+    await expect(enforceRateLimit(policy, actor)).rejects.toMatchObject({
+      code: "RATE_LIMITED",
+      status: 429,
+      retryable: true,
+    });
+
+    const stored = await getDatabase().execute<{
+      actorDigest: string;
+      leaksActor: boolean;
+    }>(
+      sql`select actor_digest as "actorDigest",
+        actor_digest like ${`%${actor}%`} as "leaksActor"
+      from harbor_security.rate_limit_buckets
+      where scope = ${scope}`,
+    );
+    expect(stored.rows[0]?.actorDigest).toMatch(/^[a-f0-9]{64}$/);
+    expect(stored.rows[0]?.leaksActor).toBe(false);
+  });
+
+  it("records sanitized worker sweep health through restricted functions", async () => {
+    const sweepId = await startWorkerSweep("integration-worker", "test");
+    await expect(
+      finishWorkerSweep({
+        sweepId,
+        workerId: "integration-worker",
+        status: "succeeded",
+        result: {
+          enqueued: 2,
+          claimed: 1,
+          succeeded: 1,
+          retried: 0,
+          failed: 0,
+          deleted: 3,
+        },
+        errorCode: null,
+      }),
+    ).resolves.toBe(true);
+
+    await expect(getKeepaliveWorkerStatus(context)).resolves.toMatchObject({
+      status: "healthy",
+      lastResult: "succeeded",
+    });
+    await expect(
+      cleanupRateLimits(new Date().toISOString()),
+    ).resolves.toBeGreaterThanOrEqual(0);
+  });
+
+  it("keeps Phase 5 security tables and roles private", async () => {
+    const result = await getDatabase().execute<{
+      runtimeCanReadRates: boolean;
+      workerCanReadSweeps: boolean;
+      publicCanConsume: boolean;
+      runtimeBypassRls: boolean;
+      workerBypassRls: boolean;
+    }>(
+      sql`select
+        has_table_privilege(
+          'harbor_runtime',
+          'harbor_security.rate_limit_buckets',
+          'select'
+        ) as "runtimeCanReadRates",
+        has_table_privilege(
+          'harbor_worker',
+          'harbor_internal.worker_sweeps',
+          'select'
+        ) as "workerCanReadSweeps",
+        has_function_privilege(
+          'public',
+          'harbor_security.consume_rate_limit(text,text,integer,integer)',
+          'execute'
+        ) as "publicCanConsume",
+        (select rolbypassrls from pg_roles where rolname = 'harbor_runtime')
+          as "runtimeBypassRls",
+        (select rolbypassrls from pg_roles where rolname = 'harbor_worker')
+          as "workerBypassRls"`,
+    );
+    expect(result.rows[0]).toEqual({
+      runtimeCanReadRates: false,
+      workerCanReadSweeps: false,
+      publicCanConsume: false,
+      runtimeBypassRls: false,
+      workerBypassRls: false,
+    });
   });
 
   it("upserts settings inside one tenant", async () => {
