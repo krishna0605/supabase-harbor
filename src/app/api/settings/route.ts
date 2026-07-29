@@ -4,6 +4,8 @@ import { ok } from "@/server/http/responses";
 import { readJson, route } from "@/server/http/route-helpers";
 import { requireHarborUser } from "@/server/auth/harbor-auth";
 
+export const runtime = "nodejs";
+
 export const GET = route(async (request) => {
   const { context } = await requireHarborUser(request);
   return ok(await getSettings(context));

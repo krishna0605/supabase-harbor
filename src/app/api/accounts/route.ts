@@ -10,6 +10,8 @@ import {
   tenantRateLimitActor,
 } from "@/server/security/rate-limit";
 
+export const runtime = "nodejs";
+
 export const GET = route(async (request) => {
   const { context } = await requireHarborUser(request);
   return ok(await listAccounts(context));

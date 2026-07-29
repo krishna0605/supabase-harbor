@@ -8,6 +8,8 @@ import {
   tenantRateLimitActor,
 } from "@/server/security/rate-limit";
 
+export const runtime = "nodejs";
+
 export const POST = route(async (request) => {
   const { context } = await requireHarborUser(request, { csrf: true });
   await enforceRateLimit(RATE_LIMITS.refresh, tenantRateLimitActor(context));

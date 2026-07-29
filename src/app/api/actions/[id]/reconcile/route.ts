@@ -1,10 +1,9 @@
 import { reconcileAction } from "@/features/projects/project-service";
 import { ok } from "@/server/http/responses";
 import { route } from "@/server/http/route-helpers";
-import {
-  requireHarborUser,
-  withUserDek,
-} from "@/server/auth/harbor-auth";
+import { requireHarborUser, withUserDek } from "@/server/auth/harbor-auth";
+
+export const runtime = "nodejs";
 
 type Context = { params: Promise<{ id: string }> };
 

@@ -13,6 +13,8 @@ import {
   tenantRateLimitActor,
 } from "@/server/security/rate-limit";
 
+export const runtime = "nodejs";
+
 type Context = { params: Promise<{ ref: string }> };
 
 const accountSchema = z.object({ accountId: z.string().uuid() });

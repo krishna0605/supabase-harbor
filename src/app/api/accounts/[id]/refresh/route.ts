@@ -8,6 +8,8 @@ import {
   tenantRateLimitActor,
 } from "@/server/security/rate-limit";
 
+export const runtime = "nodejs";
+
 type Context = { params: Promise<{ id: string }> };
 
 export async function POST(request: Request, context: Context) {
