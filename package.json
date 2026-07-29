@@ -28,7 +28,7 @@
     "test": "vitest run tests/unit",
     "test:integration": "vitest run tests/integration",
     "test:e2e": "playwright test",
-    "verify": "npm run lint && npm run typecheck && npm run test && npm run test:integration && npm run build && npm run test:e2e"
+    "verify": "tsx scripts/verify-release.ts"
   },
   "dependencies": {
     "@neondatabase/auth": "0.4.2-beta",
