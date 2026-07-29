@@ -1374,6 +1374,41 @@ export async function deleteTenantData(context: TenantContext) {
   ]);
 }
 
+export type KeepaliveWorkerStatus = {
+  status: "healthy" | "delayed" | "unknown";
+  lastStartedAt: string | null;
+  lastCompletedAt: string | null;
+  lastResult: "succeeded" | "failed" | null;
+};
+
+export async function getKeepaliveWorkerStatus(
+  context: TenantContext,
+): Promise<KeepaliveWorkerStatus> {
+  const result = await runTenantQuery<{
+    rows: Array<{
+      status: KeepaliveWorkerStatus["status"];
+      lastStartedAt: string | null;
+      lastCompletedAt: string | null;
+      lastResult: KeepaliveWorkerStatus["lastResult"];
+    }>;
+  }>(
+    context,
+    getDatabase().execute(
+      sql`select status, started_at as "lastStartedAt",
+        completed_at as "lastCompletedAt", result as "lastResult"
+      from harbor_internal.get_worker_status()`,
+    ),
+  );
+  return (
+    result.rows[0] ?? {
+      status: "unknown",
+      lastStartedAt: null,
+      lastCompletedAt: null,
+      lastResult: null,
+    }
+  );
+}
+
 export async function resetTestDatabase() {
   if (
     process.env.NODE_ENV !== "test" ||

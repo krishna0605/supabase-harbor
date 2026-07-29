@@ -7,6 +7,7 @@ describe("keepalive worker configuration", () => {
       claimLimit: 25,
       concurrency: 5,
       deadlineMs: 240_000,
+      deploymentEnvironment: "local",
     });
   });
 
@@ -24,6 +25,7 @@ describe("keepalive worker configuration", () => {
       runKeepaliveSweep(
         {
           workerId: "shutdown-test",
+          deploymentEnvironment: "test",
           claimLimit: 25,
           concurrency: 5,
           deadlineMs: 240_000,

@@ -11,6 +11,7 @@ import {
 } from "@/server/crypto/hosted-crypto";
 import {
   deleteKeepaliveEnrollment,
+  getKeepaliveWorkerStatus,
   getProject,
   listKeepaliveEnrollments,
   listKeepaliveAttempts,
@@ -156,12 +157,13 @@ export async function enrollKeepalive(
 }
 
 export async function getKeepaliveOverview(context: TenantContext) {
-  const [enrollments, jobs, attempts] = await Promise.all([
+  const [enrollments, jobs, attempts, worker] = await Promise.all([
     listKeepaliveEnrollments(context),
     listKeepaliveJobs(context, 30),
     listKeepaliveAttempts(context, 30),
+    getKeepaliveWorkerStatus(context),
   ]);
-  return { enrollments, jobs, attempts };
+  return { enrollments, jobs, attempts, worker };
 }
 
 export async function getKeepaliveHistory(context: TenantContext) {

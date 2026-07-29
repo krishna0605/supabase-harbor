@@ -240,8 +240,21 @@ export default function KeepalivePage() {
       <section className="panel">
         <div className="section-header">
           <h2>Project coverage</h2>
-          <span className="cell-secondary">
-            Worker history: {keepaliveQuery.data?.jobs.length ?? 0} recent jobs
+          <span
+            className="cell-secondary"
+            title={absoluteTime(
+              keepaliveQuery.data?.worker.lastCompletedAt ?? null,
+            )}
+          >
+            Worker:{" "}
+            {keepaliveQuery.data?.worker.status === "healthy"
+              ? "Healthy"
+              : keepaliveQuery.data?.worker.status === "delayed"
+                ? "Delayed"
+                : "Unknown"}
+            {keepaliveQuery.data?.worker.lastCompletedAt
+              ? ` · ${relativeTime(keepaliveQuery.data.worker.lastCompletedAt)}`
+              : " · no completed sweep"}
           </span>
         </div>
 

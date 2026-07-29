@@ -43,4 +43,10 @@ export type KeepaliveOverview = {
   enrollments: KeepaliveEnrollment[];
   jobs: KeepaliveJobSummary[];
   attempts: KeepaliveAttemptSummary[];
+  worker: {
+    status: "healthy" | "delayed" | "unknown";
+    lastStartedAt: string | null;
+    lastCompletedAt: string | null;
+    lastResult: "succeeded" | "failed" | null;
+  };
 };

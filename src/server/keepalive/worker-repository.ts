@@ -26,6 +26,15 @@ export type KeepaliveJobPayload = {
   vault: UserVaultRecord;
 };
 
+export type WorkerSweepResult = {
+  enqueued: number;
+  claimed: number;
+  succeeded: number;
+  retried: number;
+  failed: number;
+  deleted: number;
+};
+
 async function workerQuery<T>(query: BatchItem<"pg">) {
   const [, result] = await getDatabase().batch([
     getDatabase().execute(sql.raw("set local role harbor_worker")),
@@ -188,6 +197,60 @@ export async function cleanupKeepaliveHistory(cutoff: string) {
   const result = await workerQuery<{ count: number }>(
     getDatabase().execute(
       sql`select harbor_internal.cleanup_keepalive_history(${cutoff}) as count`,
+    ),
+  );
+  return Number(result.rows[0]?.count ?? 0);
+}
+
+export async function cleanupRateLimits(cutoff: string) {
+  const result = await workerQuery<{ count: number }>(
+    getDatabase().execute(
+      sql`select harbor_security.cleanup_rate_limits(${cutoff}) as count`,
+    ),
+  );
+  return Number(result.rows[0]?.count ?? 0);
+}
+
+export async function startWorkerSweep(
+  workerId: string,
+  deploymentEnvironment: string,
+) {
+  const result = await workerQuery<{ id: string }>(
+    getDatabase().execute(
+      sql`select harbor_internal.start_worker_sweep(
+        ${workerId}, ${deploymentEnvironment}
+      ) as id`,
+    ),
+  );
+  const id = result.rows[0]?.id;
+  if (!id) throw new Error("Worker sweep telemetry could not be started.");
+  return id;
+}
+
+export async function finishWorkerSweep(input: {
+  sweepId: string;
+  workerId: string;
+  status: "succeeded" | "failed";
+  result: WorkerSweepResult;
+  errorCode: string | null;
+}) {
+  const result = await workerQuery<{ completed: boolean }>(
+    getDatabase().execute(
+      sql`select harbor_internal.finish_worker_sweep(
+        ${input.sweepId}, ${input.workerId}, ${input.status},
+        ${input.result.enqueued}, ${input.result.claimed},
+        ${input.result.succeeded}, ${input.result.retried},
+        ${input.result.failed}, ${input.result.deleted}, ${input.errorCode}
+      ) as completed`,
+    ),
+  );
+  return Boolean(result.rows[0]?.completed);
+}
+
+export async function cleanupWorkerSweeps(cutoff: string) {
+  const result = await workerQuery<{ count: number }>(
+    getDatabase().execute(
+      sql`select harbor_internal.cleanup_worker_sweeps(${cutoff}) as count`,
     ),
   );
   return Number(result.rows[0]?.count ?? 0);
