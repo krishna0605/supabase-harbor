@@ -1,15 +1,17 @@
 import pino from "pino";
 import fs from "node:fs";
 import path from "node:path";
-import { logsDir } from "@/server/config";
+import { getLogDestination, isHostedRuntime, logsDir } from "@/server/config";
 
-fs.mkdirSync(logsDir, { recursive: true });
-
-const destination = pino.destination({
-  dest: path.join(logsDir, "harbor.log"),
-  sync: false,
-  mkdir: true,
-});
+function loggerDestination() {
+  if (getLogDestination() === "stdout") return undefined;
+  fs.mkdirSync(logsDir, { recursive: true });
+  return pino.destination({
+    dest: path.join(logsDir, "harbor.log"),
+    sync: false,
+    mkdir: true,
+  });
+}
 
 export const logger = pino(
   {
@@ -33,6 +35,7 @@ export const logger = pino(
         "TEST_DATABASE_URL_UNPOOLED",
         "HARBOR_MASTER_KEY",
         "HARBOR_PREVIOUS_MASTER_KEY",
+        "HARBOR_RATE_LIMIT_KEY",
         "NEON_AUTH_COOKIE_SECRET",
         "sessionToken",
         "accessToken",
@@ -51,7 +54,10 @@ export const logger = pino(
       ],
       censor: "[REDACTED]",
     },
-    base: { app: "supabase-harbor" },
+    base: {
+      app: "supabase-harbor",
+      runtime: isHostedRuntime() ? "hosted" : "local",
+    },
   },
-  destination,
+  loggerDestination(),
 );

@@ -2,6 +2,7 @@ import { neon } from "@neondatabase/serverless";
 import { sql } from "drizzle-orm";
 import { drizzle, type NeonHttpDatabase } from "drizzle-orm/neon-http";
 import * as schema from "@/server/database/schema";
+import { validateDatabaseUrl } from "@/server/config";
 
 const globalForDatabase = globalThis as unknown as {
   harborDatabase?: NeonHttpDatabase<typeof schema>;
@@ -19,7 +20,10 @@ function connectionString() {
         : "DATABASE_URL is required.",
     );
   }
-  return value;
+  return validateDatabaseUrl(
+    process.env.NODE_ENV === "test" ? "TEST_DATABASE_URL" : "DATABASE_URL",
+    value,
+  );
 }
 
 export function getDatabase() {
