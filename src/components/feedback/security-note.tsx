@@ -1,4 +1,4 @@
-import { DatabaseZap, GitBranch, KeyRound } from "lucide-react";
+import { DatabaseZap, KeyRound, MailCheck } from "lucide-react";
 
 export function SecurityNote() {
   return (
@@ -24,10 +24,10 @@ export function SecurityNote() {
           </span>
         </li>
         <li>
-          <GitBranch size={19} />
+          <MailCheck size={19} />
           <span>
-            GitHub sign-in is default-deny and requests no repository,
-            organization, or code scopes.
+            Email sign-in is default-deny and only approved addresses can
+            initialize a Harbor tenant.
           </span>
         </li>
       </ul>

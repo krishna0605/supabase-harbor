@@ -16,8 +16,10 @@ test("serves the hosted sign-in shell with enforced security headers", async ({
     page.getByRole("heading", { name: "Sign in to your Harbor" }),
   ).toBeVisible();
   await expect(
-    page.getByRole("button", { name: "Continue with GitHub" }),
+    page.locator("form").getByRole("button", { name: "Sign in", exact: true }),
   ).toBeVisible();
+  await expect(page.getByLabel("Email address")).toBeVisible();
+  await expect(page.getByLabel("Password")).toBeVisible();
   await expect(page).toHaveURL(/\/login$/);
 
   const csp = response?.headers()["content-security-policy"] ?? "";

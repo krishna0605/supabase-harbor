@@ -3,7 +3,7 @@ import { spawnSync } from "node:child_process";
 const verificationEnvironment = {
   ...process.env,
   HARBOR_ORIGIN: "http://127.0.0.1:47832",
-  HARBOR_ALLOWED_GITHUB_IDS: "123456789",
+  HARBOR_ALLOWED_EMAILS: "release@example.test",
   HARBOR_MASTER_KEY: "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
   HARBOR_MASTER_KEY_VERSION: "1",
   NEON_AUTH_BASE_URL: "https://auth.invalid/neondb/auth",

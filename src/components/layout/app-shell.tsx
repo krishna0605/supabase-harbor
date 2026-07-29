@@ -84,7 +84,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           <div className="sidebar-footer">
             <div className="local-chip" title={me.data?.email}>
               {me.data?.image ? (
-                // GitHub controls this URL; the image is decorative here.
+                // The managed identity provider controls this URL.
                 // eslint-disable-next-line @next/next/no-img-element
                 <img
                   src={me.data.image}

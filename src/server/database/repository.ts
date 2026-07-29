@@ -71,16 +71,6 @@ export type CachedProjectInput = {
   createdAt: string;
 };
 
-export async function resolveGithubId(userId: string) {
-  const [, result] = await getDatabase().batch([
-    getDatabase().execute(sql.raw("set local role harbor_runtime")),
-    getDatabase().execute<{ githubId: string | null }>(
-      sql`select public.harbor_github_id(${userId}) as "githubId"`,
-    ),
-  ]);
-  return result.rows[0]?.githubId ?? null;
-}
-
 export async function getUserVault(
   context: TenantContext,
 ): Promise<UserVaultRecord | null> {
@@ -1187,7 +1177,7 @@ export async function queueKeepaliveJob(
           eq(keepaliveJobs.projectRef, projectRef),
           eq(keepaliveJobs.trigger, "manual"),
           gte(
-            keepaliveJobs.scheduledFor,
+            keepaliveJobs.availableAt,
             new Date(Date.now() - 10_000).toISOString(),
           ),
         ),

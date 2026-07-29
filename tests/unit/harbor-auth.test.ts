@@ -2,7 +2,6 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   getSession: vi.fn(),
-  resolveGithubId: vi.fn(),
   getUserVault: vi.fn(),
   insertUserVault: vi.fn(),
   ensureDefaultSettings: vi.fn(),
@@ -13,7 +12,6 @@ vi.mock("@/server/auth/neon-auth", () => ({
 }));
 
 vi.mock("@/server/database/repository", () => ({
-  resolveGithubId: mocks.resolveGithubId,
   getUserVault: mocks.getUserVault,
   insertUserVault: mocks.insertUserVault,
   ensureDefaultSettings: mocks.ensureDefaultSettings,
@@ -44,7 +42,7 @@ function request(
 beforeEach(() => {
   vi.clearAllMocks();
   process.env.HARBOR_ORIGIN = "http://127.0.0.1:47832";
-  process.env.HARBOR_ALLOWED_GITHUB_IDS = "123456789";
+  process.env.HARBOR_ALLOWED_EMAILS = "harbor@example.test";
   process.env.NEON_AUTH_BASE_URL = "https://auth.example.test/neondb/auth";
   process.env.NEON_AUTH_COOKIE_SECRET =
     "unit-test-cookie-secret-at-least-32-characters";
@@ -61,17 +59,15 @@ beforeEach(() => {
       session: { id: "session-one" },
     },
   });
-  mocks.resolveGithubId.mockResolvedValue("123456789");
   mocks.getUserVault.mockResolvedValue(vault);
 });
 
 describe("hosted Harbor authorization", () => {
-  it("returns a server-derived tenant only for an allowlisted GitHub ID", async () => {
+  it("returns a server-derived tenant only for an allowlisted email", async () => {
     const result = await requireHarborUser(request());
 
     expect(result.context.userId).toBe("auth-user-one");
     expect(result.identity).toMatchObject({
-      githubId: "123456789",
       email: "harbor@example.test",
     });
     expect(mocks.ensureDefaultSettings).toHaveBeenCalledWith(
@@ -80,7 +76,17 @@ describe("hosted Harbor authorization", () => {
   });
 
   it("denies unapproved identities before creating Harbor-owned rows", async () => {
-    mocks.resolveGithubId.mockResolvedValue("987654321");
+    mocks.getSession.mockResolvedValue({
+      data: {
+        user: {
+          id: "auth-user-two",
+          name: "Denied User",
+          email: "denied@example.test",
+          image: null,
+        },
+        session: { id: "session-two" },
+      },
+    });
 
     await expect(requireHarborUser(request())).rejects.toMatchObject({
       code: "ACCESS_NOT_ALLOWED",
@@ -98,7 +104,7 @@ describe("hosted Harbor authorization", () => {
       code: "AUTHENTICATION_REQUIRED",
       status: 401,
     });
-    expect(mocks.resolveGithubId).not.toHaveBeenCalled();
+    expect(mocks.getUserVault).not.toHaveBeenCalled();
   });
 
   it("binds CSRF verification to the managed session", async () => {

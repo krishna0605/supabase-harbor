@@ -100,18 +100,22 @@ export function getHostedAuthConfig() {
     throw new Error("NEON_AUTH_COOKIE_SECRET must be at least 32 characters.");
   }
 
-  const allowedGithubIds = new Set(
-    required("HARBOR_ALLOWED_GITHUB_IDS")
+  const allowedEmails = new Set(
+    required("HARBOR_ALLOWED_EMAILS")
       .split(",")
-      .map((id) => id.trim())
+      .map((email) => email.trim().toLowerCase())
       .filter(Boolean),
   );
   if (
-    allowedGithubIds.size === 0 ||
-    [...allowedGithubIds].some((id) => id === "*" || !/^\d+$/.test(id))
+    allowedEmails.size === 0 ||
+    [...allowedEmails].some(
+      (email) =>
+        email === "*" ||
+        !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email),
+    )
   ) {
     throw new Error(
-      "HARBOR_ALLOWED_GITHUB_IDS must contain numeric GitHub IDs and cannot contain '*'.",
+      "HARBOR_ALLOWED_EMAILS must contain valid email addresses and cannot contain '*'.",
     );
   }
 
@@ -121,7 +125,7 @@ export function getHostedAuthConfig() {
       required("NEON_AUTH_BASE_URL"),
     ),
     cookieSecret,
-    allowedGithubIds,
+    allowedEmails,
     origin: parseAbsoluteUrl("HARBOR_ORIGIN", canonicalOrigin),
   };
 }

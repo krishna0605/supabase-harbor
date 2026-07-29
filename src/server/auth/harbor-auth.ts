@@ -9,7 +9,6 @@ import {
   ensureDefaultSettings,
   getUserVault,
   insertUserVault,
-  resolveGithubId,
 } from "@/server/database/repository";
 import { getHostedAuthConfig } from "@/server/config";
 import { auth } from "@/server/auth/neon-auth";
@@ -117,17 +116,17 @@ export async function requireHarborUser(
   if (!session?.user || !session.session) {
     throw new HarborError(
       "AUTHENTICATION_REQUIRED",
-      "Sign in with GitHub to continue.",
+      "Sign in with your email to continue.",
       401,
     );
   }
 
-  const githubId = await resolveGithubId(session.user.id);
   const config = getHostedAuthConfig();
-  if (!githubId || !config.allowedGithubIds.has(githubId)) {
+  const email = session.user.email.trim().toLowerCase();
+  if (!config.allowedEmails.has(email)) {
     throw new HarborError(
       "ACCESS_NOT_ALLOWED",
-      "This GitHub account is not approved for Harbor.",
+      "This email address is not approved for Harbor.",
       403,
     );
   }
@@ -158,9 +157,8 @@ export async function requireHarborUser(
   const vault = await ensureTenant(context);
   const identity = {
     userId: session.user.id,
-    githubId,
     name: session.user.name ?? null,
-    email: session.user.email,
+    email,
     image: session.user.image ?? null,
   } satisfies HarborIdentity;
 

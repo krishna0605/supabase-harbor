@@ -11,11 +11,11 @@ export default function AccessDeniedPage() {
           size={28}
           style={{ color: "var(--flare)", marginTop: 28 }}
         />
-        <h1 className="auth-title">This GitHub account is not approved</h1>
+        <h1 className="auth-title">This email address is not approved</h1>
         <p className="auth-copy">
           Authentication succeeded, but Harbor did not create a tenant, vault,
           or any application data for this identity. Ask the deployment
-          operator to add your numeric GitHub ID to the allowlist.
+          operator to add your email address to the allowlist.
         </p>
         <Link
           href="/login"

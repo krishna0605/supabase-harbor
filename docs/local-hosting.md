@@ -1,14 +1,14 @@
 # Local development and hosting
 
 Phase 3 can still run locally at `http://127.0.0.1:47832`, but identity now comes from
-Managed Neon Auth and GitHub OAuth rather than a local master password.
+Managed Neon Auth email/password sessions rather than a local master password.
 
 Create ignored `.env.local` and `.env.test.local` files from `.env.example`. The
 production runtime URL must be pooled; migration URLs must be direct. Managed Neon
 Auth must be enabled on the branch containing Harbor’s production tables.
 
-The GitHub OAuth application and Neon Auth trusted origins must include the exact
-local origin. Configure only GitHub as a sign-in provider.
+Neon Auth trusted origins must include the exact
+local origin. Configure only email/password sign-in.
 
 The launcher continues to bind to `127.0.0.1`. `HARBOR_ORIGIN` controls accepted Host
 and Origin values and must exactly match the browser URL. Public deployment is not

@@ -15,7 +15,7 @@ explicitly enrolled Free Plan projects.
 
 > [!IMPORTANT]
 > Phase 5’s hosted-runtime hardening is implemented locally, but the project is
-> **not publicly deployed yet**. The reviewed Neon production migration, OAuth
+> **not publicly deployed yet**. The reviewed Neon production migration, Auth
 > configuration, staging acceptance, and final Vercel/Railway activation remain
 > explicit release gates. Do not expose a development instance to the internet.
 
@@ -24,8 +24,8 @@ by Supabase.
 
 ## Highlights
 
-- Managed Neon Auth with GitHub OAuth
-- Default-deny admission through a server-side numeric GitHub-ID allowlist
+- Managed Neon Auth with email/password sessions
+- Default-deny admission through a server-side email allowlist
 - Forced PostgreSQL Row-Level Security on every Harbor tenant table
 - Restricted `harbor_runtime` role with no DDL or `BYPASSRLS`
 - One random Data Encryption Key per Harbor user
@@ -46,7 +46,7 @@ by Supabase.
 
 ```mermaid
 flowchart LR
-    User["Approved GitHub user"]
+    User["Approved Harbor user"]
     Browser["Harbor browser UI"]
     Next["Next.js application"]
     Auth["Managed Neon Auth"]
@@ -70,13 +70,13 @@ flowchart LR
 
 The browser receives sanitized identity, account, and project metadata. It never
 receives Supabase PATs, token ciphertext, Neon credentials, the root key, user DEKs,
-Auth cookies, or GitHub provider tokens.
+or Auth cookies.
 
 ## Scope
 
 Included:
 
-- GitHub sign-in and default-deny admission
+- Email/password sign-in and default-deny admission
 - Per-user encrypted PAT storage and tenant isolation
 - Account connection, rename, enable, disable, refresh, and Harbor-only removal
 - Organization/project caching and service-health checks
@@ -92,7 +92,7 @@ Not operationally active yet:
 
 - Production Vercel/Railway deployment
 - Production Neon tenant/keepalive migrations
-- Production GitHub OAuth and trusted-domain configuration
+- Production Neon Auth and trusted-domain configuration
 
 Not included:
 
@@ -118,7 +118,7 @@ Not included:
 - Node.js 24.x LTS
 - PowerShell 5.1+
 - A Neon project with Managed Neon Auth enabled
-- A GitHub OAuth application configured in Neon Auth
+- Managed Neon Auth with email/password enabled
 
 ## Configure
 
@@ -137,7 +137,7 @@ NEON_AUTH_BASE_URL=<branch-specific Neon Auth URL>
 NEON_AUTH_COOKIE_SECRET=<random value, at least 32 characters>
 HARBOR_MASTER_KEY=<base64-encoded random 32-byte key>
 HARBOR_MASTER_KEY_VERSION=1
-HARBOR_ALLOWED_GITHUB_IDS=<comma-separated numeric GitHub IDs>
+HARBOR_ALLOWED_EMAILS=<comma-separated approved email addresses>
 HARBOR_ORIGIN=http://127.0.0.1:47832
 ```
 
@@ -150,9 +150,9 @@ Generate a root key without printing it into source files:
 Store that output only in the deployment secret manager or ignored `.env.local`.
 Never commit connection strings, cookie secrets, root keys, PATs, or `.env.local`.
 
-Configure GitHub as the only provider in Neon Auth. Email/password, anonymous login,
-magic links, and open registration are outside Harbor’s supported configuration.
-The OAuth callback URL must match the URL shown by Neon Auth.
+Enable email sign-up and sign-in in Neon Auth. Disable OAuth providers, localhost,
+anonymous access, and magic links in production. Harbor still rejects authenticated
+email addresses that are not present in `HARBOR_ALLOWED_EMAILS`.
 
 ## Install and run locally
 

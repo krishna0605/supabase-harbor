@@ -5,11 +5,11 @@ This runbook deploys Harbor as a private hosted service:
 - the Next.js application runs on Vercel;
 - scheduled keepalive sweeps run on Railway;
 - tenant data, durable jobs, and security state live in Neon Postgres;
-- Managed Neon Auth uses GitHub OAuth;
-- Harbor admits only explicitly allowlisted numeric GitHub IDs.
+- Managed Neon Auth uses email/password sessions;
+- Harbor admits only explicitly allowlisted email addresses.
 
 The repository is public, but the hosted application is not open registration.
-Never place a database URL, OAuth secret, PAT, root key, cookie secret, or project key
+Never place a database URL, password, PAT, root key, cookie secret, or project key
 in source control, a support ticket, chat, screenshot, or build argument.
 
 ## Release gates
@@ -35,7 +35,7 @@ CI** so a failed GitHub workflow cannot start a worker deployment.
 | Git source          | exact verified `main` commit | same staging-approved commit |
 | Supabase data       | disposable only              | user-added after launch      |
 
-Use independent database logins, OAuth applications, cookie secrets, rate-limit keys,
+Use independent database logins, cookie secrets, rate-limit keys,
 and root encryption keys in staging and production.
 
 ## Secret inventory
@@ -51,7 +51,7 @@ NEON_AUTH_COOKIE_SECRET
 HARBOR_MASTER_KEY
 HARBOR_MASTER_KEY_VERSION=1
 HARBOR_RATE_LIMIT_KEY
-HARBOR_ALLOWED_GITHUB_IDS=121044830
+HARBOR_ALLOWED_EMAILS=<comma-separated approved email addresses>
 HARBOR_ORIGIN
 HARBOR_RUNTIME_MODE=hosted
 HARBOR_DEPLOYMENT_ENV
@@ -80,7 +80,7 @@ KEEPALIVE_SWEEP_TIMEOUT_MS=240000
 ```
 
 The worker root key must match the corresponding Vercel environment. It receives no
-Auth URL, Auth cookie secret, rate-limit key, web database login, OAuth secret, or
+Auth URL, Auth cookie secret, rate-limit key, web database login, or
 Supabase credential.
 
 ## 1. Prepare the release commit
@@ -120,20 +120,13 @@ Do not deploy an uncommitted directory or a different commit to either platform.
 
 Keep the backup branch until the seven-day stabilization review is complete.
 
-## 3. Configure staging GitHub OAuth
+## 3. Configure staging email authentication
 
 1. Provision Managed Neon Auth on the persistent test branch.
-2. In GitHub, open **Settings → Developer settings → OAuth Apps → New OAuth App**.
-3. Name it `Supabase Harbor Staging`.
-4. Use the stable staging Vercel URL as the Homepage URL.
-5. Use the exact callback URL displayed by test-branch Neon Auth.
-6. Create the application and copy its client ID and secret directly into Neon Auth.
-7. Enable GitHub as the only provider.
-8. Disable email/password, anonymous, magic-link, Google, and open registration.
-9. Add only the exact stable staging Vercel origin to Neon Auth trusted domains.
-10. Confirm the provider requests only identity and email access.
-
-Do not store the GitHub client secret in Harbor, Vercel, Railway, or this repository.
+2. Enable email sign-up and email sign-in.
+3. Disable every OAuth provider, anonymous access, and localhost redirects.
+4. Add only the exact stable staging Vercel origin to Neon Auth trusted domains.
+5. Configure a staging-only email allowlist in Vercel.
 
 ## 4. Create the Vercel staging project
 
@@ -154,7 +147,7 @@ Do not store the GitHub client secret in Harbor, Vercel, Railway, or this reposi
     verified commit SHA, and create the deployment manually.
 11. Confirm `/api/healthz` returns readiness without account or database details.
 
-Validate GitHub sign-in, allowlist denial, secure cookies, CSP, HSTS, Host/Origin
+Validate email sign-in, allowlist denial, secure cookies, CSP, HSTS, Host/Origin
 checks, CSRF, RLS isolation, disposable account onboarding, restore, and keepalive.
 
 ## 5. Create the Railway staging worker
@@ -180,12 +173,11 @@ checks, CSRF, RLS isolation, disposable account onboarding, restore, and keepali
 11. Run one cron execution and confirm it records a completed worker sweep and exits.
 12. Disable the staging cron after acceptance unless it is needed for release tests.
 
-## 6. Configure production GitHub OAuth
+## 6. Configure production email authentication
 
-Repeat the staging OAuth procedure with a separate application named
-`Supabase Harbor`. Use only the stable production Vercel URL and the callback shown
-by production Neon Auth. Add only the exact production origin as a trusted domain.
-Disable localhost in production.
+Enable email sign-up and sign-in in production Neon Auth. Remove every OAuth
+provider, add only the exact production origin as a trusted domain, and disable
+localhost.
 
 ## 7. Create the Vercel production project
 
@@ -196,14 +188,14 @@ Disable localhost in production.
    - production web login pooled TLS URL;
    - production Neon Auth URL;
    - production-only cookie, rate-limit, and root keys;
-   - `HARBOR_ALLOWED_GITHUB_IDS=121044830`;
+   - `HARBOR_ALLOWED_EMAILS=<approved production addresses>`;
    - the exact generated production HTTPS origin;
    - `HARBOR_DEPLOYMENT_ENV=production`.
 5. Do not add owner, migration, worker, test, or previous-key credentials.
 6. Create a deployment from the staging-approved commit SHA.
-7. Verify health and sign in with the approved GitHub account.
+7. Verify health and sign in with an approved email account.
 8. Confirm the first login creates one user vault and default settings.
-9. Confirm a denied GitHub identity receives `403` and creates no Harbor rows.
+9. Confirm a denied email identity receives `403` and creates no Harbor rows.
 
 After production is stable, set the GitHub repository variable
 `PRODUCTION_HEALTHCHECK_URL` to the production origin. The committed hourly workflow
@@ -254,7 +246,7 @@ Use only disposable Supabase credentials:
 | Web regression                   | Promote the previous known-good Vercel deployment                                  |
 | Worker regression                | Disable cron and redeploy the previous verified commit                             |
 | Incorrect platform variable      | Correct it in the secret manager and redeploy                                      |
-| OAuth failure                    | Restore the previous provider/trusted-domain configuration                         |
+| Authentication failure          | Restore the previous email-auth and trusted-domain configuration                   |
 | Pre-production migration failure | Delete the release-candidate branch                                                |
 | Production database failure      | Stop services and recover from the pre-release branch                              |
 | Root-key mismatch                | Stop both services and restore the exact prior key configuration                   |
@@ -266,8 +258,8 @@ reviewed recovery branch.
 ## Final release checklist
 
 - Migrations `0000` through `0006` are recorded in production.
-- Production Auth has GitHub as its only provider.
-- Only GitHub ID `121044830` can create Harbor tenant data.
+- Production Auth has email/password as its only sign-in method.
+- Only explicitly allowlisted email addresses can create Harbor tenant data.
 - Vercel is healthy on the stable HTTPS origin.
 - Railway has no public domain and completes scheduled sweeps.
 - Web and worker use separate restricted database logins.

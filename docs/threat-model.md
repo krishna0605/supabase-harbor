@@ -6,7 +6,7 @@
 - `HARBOR_MASTER_KEY` and previous rotation key
 - User Data Encryption Keys
 - Neon database and Managed Neon Auth credentials
-- Managed-auth sessions and GitHub provider tokens
+- Managed-auth sessions and password credentials
 - Account, project, activity, and preference data
 - Encrypted keepalive publishable/legacy anon keys and worker leases
 
@@ -20,14 +20,14 @@ The hosting runtime is trusted. Anyone who controls the runtime or obtains both 
 database and `HARBOR_MASTER_KEY` can decrypt every Harbor PAT. Envelope encryption
 protects copied database data only when the root key remains separate.
 
-Managed Neon Auth is trusted to validate GitHub sessions. Harbor separately enforces
-the numeric GitHub-ID allowlist; an authenticated but unapproved identity receives no
+Managed Neon Auth is trusted to validate email/password sessions. Harbor separately enforces
+the email allowlist; an authenticated but unapproved identity receives no
 tenant, user vault, settings, account, project, or activity rows.
 
 ## Controls
 
-- GitHub OAuth only; no repository, organization, or code scopes
-- Default-deny numeric GitHub-ID allowlist
+- Neon Auth email/password sessions only
+- Default-deny normalized email allowlist
 - Database-backed managed sessions and secure production cookies
 - Signed CSRF cookie bound to the managed session ID
 - Exact Host and Origin validation plus Fetch Metadata checks

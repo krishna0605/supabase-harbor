@@ -2,7 +2,7 @@
 
 ```mermaid
 flowchart LR
-  U["Approved GitHub user"] --> B["Harbor browser UI"]
+  U["Approved email user"] --> B["Harbor browser UI"]
   B --> N["Next.js UI and route handlers"]
   N --> A["Managed Neon Auth"]
   N --> G["Harbor tenant guard"]
@@ -19,12 +19,12 @@ flowchart LR
 
 Browser code receives sanitized identity, account, project, health, and activity
 metadata. Database credentials, Supabase PATs, PAT ciphertext, root keys, user DEKs,
-managed-auth cookies, and GitHub provider tokens remain server-side.
+and managed-auth cookies remain server-side.
 
 ## Request boundary
 
 1. Managed Neon Auth validates its database-backed session.
-2. Harbor resolves the linked numeric GitHub provider ID.
+2. Harbor normalizes and verifies the authenticated email address.
 3. The server-side allowlist admits or rejects the identity.
 4. Only an approved user receives a tenant context.
 5. Repository batches switch to `harbor_runtime`, set `harbor.user_id`, and execute

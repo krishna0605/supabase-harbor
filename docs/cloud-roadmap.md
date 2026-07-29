@@ -34,7 +34,7 @@ flowchart LR
 Operational work still pending:
 
 - Approve and apply the reviewed production Neon migrations.
-- Configure production/test GitHub OAuth and Neon Auth trusted domains.
+- Configure production/test email authentication and Neon Auth trusted domains.
 - Validate staging with isolated secrets.
 - Promote the verified release to production.
 - Complete disposable refresh, restore, and keepalive smoke tests.
