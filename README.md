@@ -14,10 +14,10 @@ in Neon Postgres. It can also schedule a low-privilege daily database heartbeat 
 explicitly enrolled Free Plan projects.
 
 > [!IMPORTANT]
-> Phase 4 is code-complete locally, but the
-> project is **not publicly deployed yet**. Production Vercel/Railway setup, abuse
-> controls, deployment secrets, monitoring, and release hardening remain Phase 5.
-> Do not expose a development instance to the internet.
+> Phase 5’s hosted-runtime hardening is implemented locally, but the project is
+> **not publicly deployed yet**. The reviewed Neon production migration, OAuth
+> configuration, staging acceptance, and final Vercel/Railway activation remain
+> explicit release gates. Do not expose a development instance to the internet.
 
 Supabase Harbor is unofficial and is not affiliated with, maintained by, or endorsed
 by Supabase.
@@ -38,6 +38,8 @@ by Supabase.
 - Durable daily keepalive scheduling, leases, retries, and attempt history
 - Low-privilege publishable/legacy anon key validation; privileged keys are rejected
 - Short-lived Railway cron worker configuration with no public endpoint
+- Durable, privacy-preserving hosted rate limits
+- Sanitized worker sweep telemetry and delayed-worker detection
 - Host, Origin, Fetch Metadata, CSRF, CSP, and secure-session protections
 
 ## Architecture
@@ -86,23 +88,28 @@ Included:
 - Automatic publishable-key discovery with manual fallback
 - Daily heartbeats, run-now jobs, disable/enable controls, and worker history
 
-Not included yet:
+Not operationally active yet:
 
-- Public Vercel/Railway deployment (Phase 5)
+- Production Vercel/Railway deployment
+- Production Neon tenant/keepalive migrations
+- Production GitHub OAuth and trusted-domain configuration
+
+Not included:
+
 - Supabase Management OAuth
 - SQL execution, database contents, logs, billing, or Supabase Auth users
 - Project creation, pause, restart, transfer, or deletion
 
 ## Phase status
 
-| Phase                                               | Status                                              |
-| --------------------------------------------------- | --------------------------------------------------- |
-| 0 — Design foundation                               | Complete                                            |
-| 1 — Tide-table UI                                   | Complete                                            |
-| 2 — Neon Postgres                                   | Complete                                            |
-| 3 — Hosted auth, tenant isolation, and secret model | Code complete; production activation pending        |
-| 4 — Keepalive engine and Railway worker             | Code complete locally; production migration pending |
-| 5 — Vercel/Railway deployment and hardening         | Pending                                             |
+| Phase                                               | Status                                       |
+| --------------------------------------------------- | -------------------------------------------- |
+| 0 — Design foundation                               | Complete                                     |
+| 1 — Tide-table UI                                   | Complete                                     |
+| 2 — Neon Postgres                                   | Complete                                     |
+| 3 — Hosted auth, tenant isolation, and secret model | Code complete; production activation pending |
+| 4 — Keepalive engine and Railway worker             | Code complete; production migration pending  |
+| 5 — Vercel/Railway deployment and hardening         | Code complete locally; activation pending    |
 
 ## Requirements
 
@@ -157,10 +164,10 @@ powershell -ExecutionPolicy Bypass -File .\scripts\setup.ps1
 Harbor opens at `http://127.0.0.1:47832`. The local launcher remains useful for
 development and private testing. Stop it with `Ctrl+C`.
 
-The application and migration connections currently use the Neon owner credential
-as the bootstrap credential, then transactionally switch application queries to the
-restricted `harbor_runtime` role. Production deployment credentials are finalized in
-Phase 5.
+Local bootstrap may use the Neon owner credential and then transactionally switch
+application queries to the restricted role. Hosted production must use separate
+pooled TLS login credentials for `harbor_runtime` and `harbor_worker`; the owner
+credential is migration-only and must never be configured in Vercel or Railway.
 
 ## Connect Supabase
 
@@ -207,8 +214,9 @@ npm run worker:sweep
 ```
 
 The process enqueues and claims bounded work, records outcomes, and exits. The
-committed `railway.worker.json` runs this command every 15 minutes with no public
-endpoint. Railway secrets and production cron activation remain Phase 5.
+committed `railway.worker.json` typechecks the worker, runs this command every
+15 minutes, never restarts it as a long-running service, and requires no public
+endpoint. Railway secrets and production cron activation remain gated.
 
 ## Security model
 
@@ -253,6 +261,7 @@ Integration resets require all three guards: `NODE_ENV=test`,
 - [Cloud roadmap](docs/cloud-roadmap.md)
 - [Supabase API compatibility](docs/supabase-api-compatibility.md)
 - [Keepalive worker](docs/keepalive-worker.md)
+- [Production deployment runbook](docs/production-deployment.md)
 
 ## Contributing
 

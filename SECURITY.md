@@ -33,9 +33,10 @@ database from someone who lacks that key. It does not protect against a compromi
 hosting operator or runtime. Anyone with both database access and
 `HARBOR_MASTER_KEY` can decrypt all Harbor PATs.
 
-Phase 3 is cloud-ready but not a public deployment. Public hosting remains unsupported
-until Phase 5’s deployment, rate-control, monitoring, recovery, and live security
-gates are complete.
+Phase 5’s hosted controls are implemented locally, but public hosting remains
+unsupported until the reviewed production migration, staging validation, OAuth
+configuration, deployment, and live security gates are complete. Follow the
+[production deployment runbook](docs/production-deployment.md).
 
 ## Suspected credential exposure
 

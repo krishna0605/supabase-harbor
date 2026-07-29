@@ -40,9 +40,13 @@ tenant, user vault, settings, account, project, or activity rows.
 - Forced RLS on every Harbor tenant table
 - `harbor_runtime` has DML only, no DDL, superuser, or `BYPASSRLS`
 - Structured redaction for authorization, cookies, tokens, keys, and request bodies
+- Durable per-operation rate limits keyed by HMAC-digested actor identifiers; raw IP
+  addresses are not stored
 - Fixed Supabase RPC hosts derived from 20-character project references, disabled redirects,
   and ten-second timeouts
 - Private worker functions, exact lease tokens, and a no-DDL/no-`BYPASSRLS` worker role
+- Sanitized sweep telemetry without tenant IDs, credentials, lease tokens, or
+  upstream response bodies
 - Production CSP, frame denial, restrictive browser permissions, and HSTS on HTTPS
 
 ## Explicit non-goals

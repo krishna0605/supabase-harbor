@@ -23,6 +23,7 @@ rejection are terminal after the allowed credential refresh.
 
 `railway.worker.json` defines:
 
+- build-time TypeScript verification
 - `npm run worker:sweep`
 - cron `*/15 * * * *` in UTC
 - restart policy `NEVER`
@@ -47,4 +48,7 @@ and can execute only reviewed functions in the private `harbor_internal` schema.
 - Removing an enrollment deletes only Harbor data. Optional SQL cleanup remains a
   deliberate user-run action in Supabase Studio.
 
-Completed, failed, and cancelled job history is retained for 90 days.
+Completed, failed, and cancelled job history is retained for 90 days. Sanitized
+worker sweep telemetry is retained for 30 days. Each sweep also removes expired
+private rate-limit buckets. Harbor reports a completed sweep within 45 minutes as
+healthy; older telemetry is delayed.
