@@ -27,6 +27,10 @@ describe("deployment configuration", () => {
     const config = JSON.parse(
       readFileSync(join(root, "railway.worker.json"), "utf8"),
     ) as {
+      build: {
+        builder: string;
+        buildCommand: string;
+      };
       deploy: {
         startCommand: string;
         cronSchedule: string;
@@ -35,6 +39,8 @@ describe("deployment configuration", () => {
       };
     };
 
+    expect(config.build.builder).toBe("RAILPACK");
+    expect(config.build.buildCommand).toBe("npm run typecheck");
     expect(config.deploy.startCommand).toBe("npm run worker:sweep");
     expect(config.deploy.cronSchedule).toBe("*/15 * * * *");
     expect(config.deploy.restartPolicyType).toBe("NEVER");
