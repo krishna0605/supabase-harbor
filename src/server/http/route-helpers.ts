@@ -8,12 +8,15 @@ export async function readJson<T extends z.ZodType>(
   return schema.parse(await request.json());
 }
 
-export function route(
-  handler: (request: Request) => Promise<Response> | Response,
+export function route<Arguments extends unknown[]>(
+  handler: (
+    request: Request,
+    ...arguments_: Arguments
+  ) => Promise<Response> | Response,
 ) {
-  return async (request: Request) => {
+  return async (request: Request, ...arguments_: Arguments) => {
     try {
-      return await handler(request);
+      return await handler(request, ...arguments_);
     } catch (error) {
       return failure(error);
     }

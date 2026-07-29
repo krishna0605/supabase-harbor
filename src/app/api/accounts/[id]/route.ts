@@ -5,10 +5,12 @@ import {
 } from "@/features/accounts/account-service";
 import { ok } from "@/server/http/responses";
 import { readJson, route } from "@/server/http/route-helpers";
+import { requireHarborUser, withUserDek } from "@/server/auth/harbor-auth";
 import {
-  requireHarborUser,
-  withUserDek,
-} from "@/server/auth/harbor-auth";
+  enforceRateLimit,
+  RATE_LIMITS,
+  tenantRateLimitActor,
+} from "@/server/security/rate-limit";
 
 type Context = { params: Promise<{ id: string }> };
 
@@ -18,6 +20,10 @@ export async function PATCH(request: Request, context: Context) {
       csrf: true,
     });
     const { id } = await context.params;
+    await enforceRateLimit(
+      RATE_LIMITS.accountWrite,
+      tenantRateLimitActor(tenant, id),
+    );
     const patch = await readJson(
       currentRequest,
       z.object({
@@ -27,9 +33,7 @@ export async function PATCH(request: Request, context: Context) {
       }),
     );
     return ok(
-      await withUserDek(tenant, (dek) =>
-        patchAccount(tenant, id, patch, dek),
-      ),
+      await withUserDek(tenant, (dek) => patchAccount(tenant, id, patch, dek)),
     );
   })(request);
 }

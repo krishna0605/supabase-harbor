@@ -1,5 +1,6 @@
 import path from "node:path";
 import os from "node:os";
+import { createHash } from "node:crypto";
 
 export const harborPort = Number(process.env.HARBOR_PORT || "47832");
 
@@ -123,4 +124,32 @@ export function getHostedAuthConfig() {
     allowedGithubIds,
     origin: parseAbsoluteUrl("HARBOR_ORIGIN", canonicalOrigin),
   };
+}
+
+export function getRateLimitKey() {
+  const configured = process.env.HARBOR_RATE_LIMIT_KEY?.trim();
+  if (!configured) {
+    if (isHostedRuntime()) {
+      throw new Error("HARBOR_RATE_LIMIT_KEY is required.");
+    }
+    return createHash("sha256")
+      .update(required("NEON_AUTH_COOKIE_SECRET"))
+      .update("\0supabase-harbor:local-rate-limit")
+      .digest();
+  }
+  if (isHostedRuntime() && PLACEHOLDER_PATTERN.test(configured)) {
+    throw new Error("HARBOR_RATE_LIMIT_KEY contains a placeholder value.");
+  }
+  if (!/^[A-Za-z0-9+/]{43}=$/.test(configured)) {
+    throw new Error(
+      "HARBOR_RATE_LIMIT_KEY must be a base64-encoded 32-byte key.",
+    );
+  }
+  const key = Buffer.from(configured, "base64");
+  if (key.length !== 32) {
+    throw new Error(
+      "HARBOR_RATE_LIMIT_KEY must be a base64-encoded 32-byte key.",
+    );
+  }
+  return key;
 }

@@ -3,10 +3,12 @@ import { connectAccount } from "@/features/accounts/account-service";
 import { listAccounts } from "@/server/database/repository";
 import { ok } from "@/server/http/responses";
 import { readJson, route } from "@/server/http/route-helpers";
+import { requireHarborUser, withUserDek } from "@/server/auth/harbor-auth";
 import {
-  requireHarborUser,
-  withUserDek,
-} from "@/server/auth/harbor-auth";
+  enforceRateLimit,
+  RATE_LIMITS,
+  tenantRateLimitActor,
+} from "@/server/security/rate-limit";
 
 export const GET = route(async (request) => {
   const { context } = await requireHarborUser(request);
@@ -15,6 +17,10 @@ export const GET = route(async (request) => {
 
 export const POST = route(async (request) => {
   const { context } = await requireHarborUser(request, { csrf: true });
+  await enforceRateLimit(
+    RATE_LIMITS.accountWrite,
+    tenantRateLimitActor(context),
+  );
   const input = await readJson(
     request,
     z.object({ label: z.string(), token: z.string() }),

@@ -7,6 +7,11 @@ import {
 import { requireHarborUser, withUserDek } from "@/server/auth/harbor-auth";
 import { ok } from "@/server/http/responses";
 import { readJson, route } from "@/server/http/route-helpers";
+import {
+  enforceRateLimit,
+  RATE_LIMITS,
+  tenantRateLimitActor,
+} from "@/server/security/rate-limit";
 
 type Context = { params: Promise<{ ref: string }> };
 
@@ -24,6 +29,10 @@ export async function POST(request: Request, context: Context) {
       }),
     );
     const { ref } = await context.params;
+    await enforceRateLimit(
+      RATE_LIMITS.keepaliveEnrollment,
+      tenantRateLimitActor(tenant, input.accountId, ref),
+    );
     return ok(
       await withUserDek(tenant, (dek) =>
         enrollKeepalive(

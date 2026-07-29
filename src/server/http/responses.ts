@@ -34,5 +34,12 @@ export function failure(error: unknown) {
     },
     meta: { requestId: randomUUID() },
   };
-  return NextResponse.json(payload, { status: normalized.status });
+  const response = NextResponse.json(payload, { status: normalized.status });
+  if (normalized.retryAfterMs !== undefined) {
+    response.headers.set(
+      "Retry-After",
+      String(Math.max(1, Math.ceil(normalized.retryAfterMs / 1000))),
+    );
+  }
+  return response;
 }
